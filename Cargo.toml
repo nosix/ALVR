@@ -10,14 +10,15 @@ members = [
     "alvr/session",
     "alvr/sockets",
     "alvr/audio",
-    "alvr/client",
+#    "alvr/client",
     "alvr/server",
     "alvr/launcher",
     "alvr/vrcompositor-wrapper",
-    "alvr/vulkan-layer",
+#    "alvr/vulkan-layer",
     "alvr/xtask",
-    "alvr/experiments/client",     # needed for bug in cargo-subcommand
-    "alvr/experiments/*",
+#    "alvr/experiments/client",     # needed for bug in cargo-subcommand
+    "alvr/experiments/android-lib-no-ovr",
+#    "alvr/experiments/*",
 ]
 
 [patch.crates-io] # wgpu version that works both with rend3 and alvr_graphics vulkan interop
