@@ -600,6 +600,7 @@ mod tests {
     use simple_logger::SimpleLogger;
     use std::{thread, time::Duration};
     use log::LevelFilter;
+    use tokio;
 
     static DEVICE: Lazy<Device> = Lazy::new(|| Device::new("Test Device"));
 
@@ -609,6 +610,17 @@ mod tests {
             certificate_pem: identity.certificate_pem.clone(),
             key_pem: identity.key_pem.clone(),
         }
+    }
+
+    #[test]
+    #[ignore]
+    /// Please specify -- --ignored --nocapture to check the log.
+    fn run() {
+        SimpleLogger::new().with_level(LevelFilter::Info).init();
+        let identity =
+            alvr_sockets::create_identity(Some("test.client.alvr".into())).unwrap();
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(super::connect(&DEVICE, identity).unwrap().unwrap());
     }
 
     #[test]
