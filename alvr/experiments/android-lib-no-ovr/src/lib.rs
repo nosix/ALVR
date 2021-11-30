@@ -1,5 +1,9 @@
+mod audio;
 mod connection;
 mod device;
+mod legacy_packets;
+mod logging_backend;
+mod util;
 
 use crate::device::Device;
 use alvr_common::prelude::*;
@@ -28,6 +32,14 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_stringFromJni(
     env.new_string(hello)
         .expect("Couldn't create Java string!")
         .into_inner()
+}
+
+#[no_mangle]
+pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onCreate(
+    _: JNIEnv,
+    _: JObject,
+) {
+    logging_backend::init_logging();
 }
 
 #[no_mangle]

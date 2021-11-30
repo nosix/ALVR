@@ -1,4 +1,9 @@
-use crate::device::Device;
+use crate::{
+    audio,
+    device::Device,
+    legacy_packets::*,
+    util,
+};
 use alvr_common::{
     prelude::*,
     ALVR_NAME, ALVR_VERSION,
@@ -6,7 +11,7 @@ use alvr_common::{
 use alvr_session::*;
 use alvr_sockets::*;
 use bincode;
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use futures::future::BoxFuture;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
@@ -27,9 +32,6 @@ use tokio::{
     time::{self, Instant},
 };
 
-#[cfg(target_os = "android")]
-use crate::audio;
-
 const CHANNEL_BUFFER_SIZE: usize = 128;
 
 const RETRY_CONNECT_MIN_INTERVAL: Duration = Duration::from_secs(1);
@@ -43,7 +45,7 @@ const TRACKING_INTERVAL: f32 = 1. / 360.;
 // const CLEANUP_PAUSE: Duration = Duration::from_millis(500);
 
 static MAYBE_RUNTIME: Lazy<Mutex<Option<Runtime>>> = Lazy::new(|| Mutex::new(None));
-static MAYBE_LEGACY_SENDER: Lazy<Mutex<Option<tmpsc::Sender<Vec<u8>>>>> = Lazy::new(|| Mutex::new(None));
+static MAYBE_LEGACY_SENDER: Lazy<Mutex<Option<tmpsc::UnboundedSender<Vec<u8>>>>> = Lazy::new(|| Mutex::new(None));
 static IDR_REQUEST_NOTIFIER: Lazy<Notify> = Lazy::new(|| Notify::new());
 
 #[derive(Debug)]
@@ -238,13 +240,16 @@ async fn connection_pipeline(
         Switch::Disabled => false,
     };
 
-    let (legacy_send_data_sender, legacy_send_data_receiver) = tmpsc::channel(CHANNEL_BUFFER_SIZE);
+    // legacy_send_data_sender is used by the sync context.
+    let (legacy_send_data_sender, legacy_send_data_receiver) = tmpsc::unbounded_channel();
+    *MAYBE_LEGACY_SENDER.lock() = Some(legacy_send_data_sender);
 
     let legacy_send_loop = legacy_send_loop(
         legacy_send_data_receiver,
         stream_socket.request_stream::<_, LEGACY>().await.unwrap(), // TODO error handling
     );
 
+    // legacy_receive_data_receiver is used by the sync context.
     let (legacy_receive_data_sender, legacy_receive_data_receiver) = smpsc::channel();
 
     let legacy_receive_loop = legacy_receive_loop(
@@ -277,6 +282,7 @@ async fn connection_pipeline(
     let game_audio_loop = game_audio_loop(
         stream_socket.subscribe_to_stream().await.unwrap(), // TODO error handling
         settings.audio.game_audio,
+        config_packet.game_audio_sample_rate,
     );
     let microphone_loop = microphone_loop(
         stream_socket.request_stream().await.unwrap(), // TODO error handling
@@ -293,7 +299,6 @@ async fn connection_pipeline(
         },
         res = spawn_cancelable(game_audio_loop) => res,
         res = spawn_cancelable(microphone_loop) => res,
-        res = spawn_cancelable(control_send_loop) => res,
         res = spawn_cancelable(tracking_loop) => res,
         res = spawn_cancelable(playspace_sync_loop) => res,
         res = spawn_cancelable(legacy_send_loop) => res,
@@ -302,6 +307,7 @@ async fn connection_pipeline(
 
         // keep these loops on the current task
         res = keepalive_sender_loop => res,
+        res = control_send_loop => res,
         res = control_loop => res,
     }
 }
@@ -362,7 +368,7 @@ async fn receive_response_loop(
 }
 
 async fn legacy_send_loop(
-    mut legacy_send_data_receiver: tmpsc::Receiver<Vec<u8>>,
+    mut legacy_send_data_receiver: tmpsc::UnboundedReceiver<Vec<u8>>,
     mut socket_sender: StreamSender<(), LEGACY>,
 ) -> StrResult {
     while let Some(data) = legacy_send_data_receiver.recv().await {
@@ -453,10 +459,26 @@ async fn control_send_loop(
 async fn tracking_loop() -> StrResult {
     let tracking_interval = Duration::from_secs_f32(TRACKING_INTERVAL);
     let mut deadline = Instant::now();
+    let mut frame_index = 0;
     loop {
         // unsafe { crate::onTrackingNative(tracking_clientside_prediction) };
-        // send_tracking_info();
-        info!("Send TrackingInfoPacket");
+        frame_index += 1;
+        let tracking_info = TrackingInfo {
+            client_time: util::get_timestamp_us(),
+            frame_index,
+            // TODO predicated_display_time
+            ipd: 0.068606f32,
+            // TODO eye_fov
+            // TODO battery
+            // TODO plugged
+            // TODO head_pose_orientation
+            // TODO head_pose_position
+            // TODO controller
+            ..Default::default()
+        };
+        // let mut latency_controller = LATENCY_CONTROLLER.lock().tracking(frame_index);
+        info!("legacy_send {:?}", &tracking_info);
+        legacy_send(tracking_info.into());
 
         deadline += tracking_interval;
         time::sleep_until(deadline).await;
@@ -507,7 +529,7 @@ async fn playspace_sync_loop(
         //         .await
         //         .ok();
         // }
-        info!("send PlayspaceSyncPacket");
+        info!("send PlayspaceSync");
 
         time::sleep(PLAYSPACE_SYNC_INTERVAL).await;
     }
@@ -560,19 +582,16 @@ async fn control_loop(
 fn game_audio_loop<'a>(
     game_audio_receiver: StreamReceiver<(), AUDIO>,
     game_audio_desc: Switch<GameAudioDesc>,
+    game_audio_sample_rate: u32,
 ) -> BoxFuture<'a, StrResult> {
     if let Switch::Enabled(desc) = game_audio_desc {
-        #[cfg(target_os = "android")]
-            {
-                let game_audio_receiver = stream_socket.subscribe_to_stream().await?;
-                return Box::pin(audio::play_audio_loop(
-                    config_packet.game_audio_sample_rate,
-                    desc.config,
-                    game_audio_receiver,
-                ));
-            }
+        return Box::pin(audio::play_audio_loop(
+            game_audio_receiver,
+            desc.config,
+            game_audio_sample_rate,
+        ));
     }
-    Box::pin(future::pending())
+    Box::pin(audio::play_audio_loop_nop(game_audio_receiver))
 }
 
 fn microphone_loop<'a>(
@@ -580,16 +599,18 @@ fn microphone_loop<'a>(
     microphone_desc: Switch<MicrophoneDesc>,
 ) -> BoxFuture<'a, StrResult> {
     if let Switch::Enabled(desc) = microphone_desc {
-        #[cfg(target_os = "android")]
-            {
-                let microphone_sender = stream_socket.request_stream().await?;
-                return Box::pin(audio::record_audio_loop(
-                    desc.sample_rate,
-                    microphone_sender,
-                ));
-            }
+        return Box::pin(audio::record_audio_loop(
+            microphone_sender,
+            desc.sample_rate,
+        ));
     }
-    Box::pin(future::pending())
+    Box::pin(audio::record_audio_loop_nop(microphone_sender))
+}
+
+fn legacy_send(message: Vec<u8>) {
+    if let Some(sender) = &*MAYBE_LEGACY_SENDER.lock() {
+        sender.send(message).ok();
+    }
 }
 
 #[cfg(test)]
