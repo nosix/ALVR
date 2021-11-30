@@ -10,6 +10,7 @@ edition = "2021"
 crate_type = ["cdylib"]
 
 [dependencies]
+alvr_audio = { path = "../../audio" }
 alvr_common = { path = "../../common" }
 alvr_session = { path = "../../session" }
 alvr_sockets = { path = "../../sockets" }
@@ -34,6 +35,7 @@ semver = "1.0"
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.10"
+oboe = "0.4" # Note: cannot use feature "java-interface" to query audio info
 
 [dev-dependencies]
 simple_logger = "1.15"

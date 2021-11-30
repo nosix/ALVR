@@ -117,6 +117,7 @@ dependencies = [
 name = "alvr_android"
 version = "0.1.0"
 dependencies = [
+ "alvr_audio",
  "alvr_common",
  "alvr_session",
  "alvr_sockets",
@@ -126,6 +127,7 @@ dependencies = [
  "futures",
  "jni",
  "log",
+ "oboe",
  "once_cell",
  "parking_lot",
  "semver 1.0.4",
