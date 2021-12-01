@@ -18,8 +18,13 @@ class MainActivity : AppCompatActivity() {
         nativeApi.onCreate()
     }
 
-    override fun onResume() {
-        super.onResume()
-        nativeApi.onResume()
+    override fun onStart() {
+        super.onStart()
+        nativeApi.onStart()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        nativeApi.onStop()
     }
 }

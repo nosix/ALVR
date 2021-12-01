@@ -12,7 +12,7 @@ use once_cell::sync::Lazy;
 
 static DEVICE: Lazy<Device> = Lazy::new(|| Device::new("Android ALVR"));
 
-macro_rules! run {
+macro_rules! catch_err {
     ( $b:block ) => {
         let s = || -> StrResult {
             $b
@@ -43,21 +43,20 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onCreate(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onResume(
+pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onStart(
     _: JNIEnv,
     _: JObject,
 ) {
-    run!({
+    catch_err!({
         let identity = trace_err!(alvr_sockets::create_identity(None))?;
         trace_err!(connection::connect(&DEVICE, identity))?;
     });
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        let result = 2 + 2;
-        assert_eq!(result, 4);
-    }
+#[no_mangle]
+pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onStop(
+    _: JNIEnv,
+    _: JObject,
+) {
+    connection::disconnect();
 }
