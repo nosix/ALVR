@@ -53,8 +53,6 @@ enum ConnectionEvent {
     Initial,
     StreamStart,
     ServerRestart,
-    ServerDisconnected(String),
-    TimeoutSetUpStream,
     Error(ConnectionError),
 }
 
@@ -63,6 +61,8 @@ enum ConnectionError {
     NetworkUnreachable,
     ClientUntrusted,
     IncompatibleVersions,
+    TimeoutSetUpStream,
+    ServerDisconnected(String),
     SystemError(String),
 }
 
@@ -100,6 +100,8 @@ pub fn disconnect() {
 
     // shutdown and wait for tasks to finish
     drop(maybe_runtime.take());
+
+    info!("The connection has been disconnected.")
 }
 
 pub fn request_idr() {
@@ -118,19 +120,28 @@ async fn connection_lifecycle_loop(
 
     loop {
         tokio::join!(
-            connection_pipeline(device, &identity),
+            async {
+                match connection_pipeline(device, &identity).await {
+                    Err(e) => {
+                        notify_event(ConnectionEvent::Error(e));
+                        time::sleep(RETRY_CONNECT_MIN_INTERVAL).await;
+                        notify_event(ConnectionEvent::Initial);
+                    },
+                    Ok(_) => ()
+                }
+                // TODO Do I need the following?
+                // // let any running task or socket shutdown
+                // time::sleep(CLEANUP_PAUSE).await; // 500 msec
+            },
             time::sleep(RETRY_CONNECT_MIN_INTERVAL),
         );
     }
-    // TODO When connection_pipeline is finished, do I need the following?
-    // // let any running task or socket shutdown
-    // time::sleep(CLEANUP_PAUSE).await; // 500 msec
 }
 
 async fn connection_pipeline(
     device: &'static Device,
     identity: &PrivateIdentity,
-) -> StrResult {
+) -> Result<(), ConnectionError> {
     let hostname = &identity.hostname;
 
     let handshake_packet = ClientHandshakePacket {
@@ -145,12 +156,8 @@ async fn connection_pipeline(
     let (mut proto_socket, server_ip) = tokio::select! {
         pair = control_connect_loop() => pair,
         res = announce_client_loop(handshake_packet) => {
-            if let Err(e) = res {
-                notify_event(ConnectionEvent::Error(e));
-                time::sleep(RETRY_CONNECT_MIN_INTERVAL).await;
-                notify_event(ConnectionEvent::Initial);
-            }
-            return Ok(()); // TODO check return value
+            assert!(matches!(res, Err(_)));
+            return Err(res.unwrap_err());
         },
     };
 
@@ -164,12 +171,11 @@ async fn connection_pipeline(
         reserved: format!("{}", *ALVR_VERSION),
     };
 
-    proto_socket.send(&(headset_info, server_ip)).await.unwrap(); // TODO error handling
-    let config_packet = proto_socket.recv::<ClientConfigPacket>().await.unwrap(); // TODO error handling
+    proto_socket.send(&(headset_info, server_ip)).await?;
+    let config_packet = proto_socket.recv::<ClientConfigPacket>().await?;
 
     let (mut control_sender, mut control_receiver) =
         proto_socket.split::<ClientControlPacket, ServerControlPacket>();
-    // let control_sender = Arc::new(Mutex::new(control_sender));
 
     match control_receiver.recv().await {
         Ok(ServerControlPacket::StartStream) => {
@@ -177,44 +183,39 @@ async fn connection_pipeline(
         }
         Ok(ServerControlPacket::Restarting) => {
             notify_event(ConnectionEvent::ServerRestart);
-            return Ok(()); // TODO check return value
+            return Ok(());
         }
         Ok(_) => {
-            notify_event(ConnectionEvent::Error(
-                ConnectionError::SystemError("Unexpected packet".into())
-            ));
-            return Ok(()); // TODO check return value
+            return Err(ConnectionError::SystemError("Unexpected packet".into()));
         }
         Err(e) => {
-            notify_event(ConnectionEvent::ServerDisconnected(format!("{}\n{}", e, trace_str!())));
-            return Ok(()); // TODO check return value
+            return Err(ConnectionError::ServerDisconnected(format!("{} {}", trace_str!(), e)));
         }
     }
 
     let settings = {
-        let session_desc_json = json::from_str(&config_packet.session_desc).unwrap(); // TODO error handling
+        let session_desc_json = trace_err!(json::from_str(&config_packet.session_desc))?;
         let mut session_desc = SessionDesc::default();
-        session_desc.merge_from_json(&session_desc_json).unwrap(); // TODO error handling
+        session_desc.merge_from_json(&session_desc_json)?;
         session_desc.to_settings()
     };
 
     let stream_port = settings.connection.stream_port;
 
     let stream_socket_builder =
-        StreamSocketBuilder::listen_for_server(stream_port, settings.connection.stream_protocol)
-            .await.unwrap(); // TODO error handling
+        StreamSocketBuilder::listen_for_server(
+            stream_port,
+            settings.connection.stream_protocol
+        ).await?;
 
     if let Err(e) = control_sender.send(&ClientControlPacket::StreamReady).await {
-        notify_event(ConnectionEvent::ServerDisconnected(format!("{}\n{}", e, trace_str!())));
-        return Ok(()); // TODO check return value
+        return Err(ConnectionError::ServerDisconnected(format!("{} {}", trace_str!(), e)));
     }
 
     let mut stream_socket = tokio::select! {
-        res = stream_socket_builder.accept_from_server(server_ip, stream_port) => res.unwrap(), // TODO error handling
+        res = stream_socket_builder.accept_from_server(server_ip, stream_port) => res?,
         _ = time::sleep(SET_UP_STREAM_TIMEOUT) => {
-            notify_event(ConnectionEvent::TimeoutSetUpStream);
-            return Ok(()); // TODO check return value
-            // return fmt_e!("Timeout while setting up streams");
+            return Err(ConnectionError::TimeoutSetUpStream);
         }
     };
 
@@ -246,14 +247,14 @@ async fn connection_pipeline(
 
     let legacy_send_loop = legacy_send_loop(
         legacy_send_data_receiver,
-        stream_socket.request_stream::<_, LEGACY>().await.unwrap(), // TODO error handling
+        stream_socket.request_stream::<_, LEGACY>().await?,
     );
 
     // legacy_receive_data_receiver is used by the sync context.
     let (legacy_receive_data_sender, legacy_receive_data_receiver) = smpsc::channel();
 
     let legacy_receive_loop = legacy_receive_loop(
-        stream_socket.subscribe_to_stream::<(), LEGACY>().await.unwrap(), // TODO error handling
+        stream_socket.subscribe_to_stream::<(), LEGACY>().await?,
         legacy_receive_data_sender,
     );
 
@@ -280,22 +281,22 @@ async fn connection_pipeline(
     );
 
     let game_audio_loop = game_audio_loop(
-        stream_socket.subscribe_to_stream().await.unwrap(), // TODO error handling
+        stream_socket.subscribe_to_stream().await?,
         settings.audio.game_audio,
         config_packet.game_audio_sample_rate,
     );
     let microphone_loop = microphone_loop(
-        stream_socket.request_stream().await.unwrap(), // TODO error handling
+        stream_socket.request_stream().await?,
         settings.audio.microphone,
     );
 
     // Run many tasks concurrently. Threading is managed by the runtime, for best performance.
-    tokio::select! {
+    (tokio::select! {
         res = spawn_cancelable(stream_socket.receive_loop()) => {
             if let Err(e) = res {
-                notify_event(ConnectionEvent::ServerDisconnected(format!("{}\n{}", e, trace_str!())));
+                return Err(ConnectionError::ServerDisconnected(format!("{}\n{}", e, trace_str!())));
             }
-            Ok(()) // TODO check return value
+            Ok(())
         },
         res = spawn_cancelable(game_audio_loop) => res,
         res = spawn_cancelable(microphone_loop) => res,
@@ -309,7 +310,9 @@ async fn connection_pipeline(
         res = keepalive_sender_loop => res,
         res = control_send_loop => res,
         res = control_loop => res,
-    }
+    })?;
+
+    Ok(())
 }
 
 async fn control_connect_loop() -> (ProtoControlSocket, IpAddr) {
@@ -451,7 +454,7 @@ async fn control_send_loop(
     mut control_sender: ControlSocketSender<ClientControlPacket>,
 ) -> StrResult {
     while let Some(packet) = control_send_data_receiver.recv().await {
-        control_sender.send(&packet).await;
+        trace_err!(control_sender.send(&packet).await)?;
     }
     Ok(())
 }
@@ -477,7 +480,7 @@ async fn tracking_loop() -> StrResult {
             ..Default::default()
         };
         // let mut latency_controller = LATENCY_CONTROLLER.lock().tracking(frame_index);
-        info!("legacy_send {:?}", &tracking_info);
+        // info!("legacy_send {:?}", &tracking_info); // FIXME too many output
         legacy_send(tracking_info.into());
 
         deadline += tracking_interval;
@@ -538,45 +541,30 @@ async fn playspace_sync_loop(
 async fn keepalive_sender_loop(
     control_sender: tmpsc::Sender<ClientControlPacket>
 ) -> StrResult {
-    // let control_sender = Arc::clone(&control_sender);
-    // let java_vm = Arc::clone(&java_vm);
-    // let activity = Arc::clone(&activity);
     loop {
-        let res = control_sender.send(ClientControlPacket::KeepAlive).await;
-        if let Err(e) = res {
-            notify_event(ConnectionEvent::ServerDisconnected(format!("{}\n{}", e, trace_str!())));
-            break;
-        }
+        trace_err!(control_sender.send(ClientControlPacket::KeepAlive).await)?;
         time::sleep(NETWORK_KEEPALIVE_INTERVAL).await;
     }
-    Ok(())
 }
 
 async fn control_loop(
     mut control_receiver: ControlSocketReceiver<ServerControlPacket>,
     control_sender: tmpsc::Sender<ClientControlPacket>,
 ) -> StrResult {
-    // let java_vm = Arc::clone(&java_vm);
-    // let activity = Arc::clone(&activity);
     loop {
         tokio::select! {
             _ = IDR_REQUEST_NOTIFIER.notified() => {
-                control_sender.send(ClientControlPacket::RequestIdr).await;
+                trace_err!(control_sender.send(ClientControlPacket::RequestIdr).await)?;
             }
-            control_packet = control_receiver.recv() => match control_packet {
-                Ok(ServerControlPacket::Restarting) => {
+            control_packet = control_receiver.recv() => match trace_err!(control_packet)? {
+                ServerControlPacket::Restarting => {
                     notify_event(ConnectionEvent::ServerRestart);
-                    break;
+                    return Ok(())
                 }
-                Ok(_) => (),
-                Err(e) => {
-                    notify_event(ConnectionEvent::ServerDisconnected(format!("{}\n{}", e, trace_str!())));
-                    break;
-                }
+                _ => ()
             }
         }
     }
-    Ok(())
 }
 
 fn game_audio_loop<'a>(
@@ -637,7 +625,7 @@ mod tests {
     #[ignore]
     /// Please specify -- --ignored --nocapture to check the log.
     fn run() {
-        SimpleLogger::new().with_level(LevelFilter::Info).init();
+        SimpleLogger::new().with_level(LevelFilter::Info).init().unwrap();
         let identity =
             alvr_sockets::create_identity(Some("test.client.alvr".into())).unwrap();
         let runtime = tokio::runtime::Runtime::new().unwrap();
@@ -646,7 +634,7 @@ mod tests {
 
     #[test]
     fn connect_and_disconnect() {
-        SimpleLogger::new().with_level(LevelFilter::Info).init();
+        SimpleLogger::new().with_level(LevelFilter::Info).init().unwrap();
         let identity =
             alvr_sockets::create_identity(Some("test.client.alvr".into())).unwrap();
         {
