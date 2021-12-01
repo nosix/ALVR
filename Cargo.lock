@@ -130,6 +130,7 @@ dependencies = [
  "oboe",
  "once_cell",
  "parking_lot",
+ "reed-solomon-erasure",
  "semver 1.0.4",
  "serde",
  "serde_json",
@@ -3935,6 +3936,15 @@ checksum = "528532f3d801c87aec9def2add9ca802fe569e44a544afe633765267840abe64"
 dependencies = [
  "getrandom",
  "redox_syscall",
+]
+
+[[package]]
+name = "reed-solomon-erasure"
+version = "4.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a415a013dd7c5d4221382329a5a3482566da675737494935cbbbcdec04662f9d"
+dependencies = [
+ "smallvec",
 ]
 
 [[package]]

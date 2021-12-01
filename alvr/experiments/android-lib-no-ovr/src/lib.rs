@@ -1,9 +1,11 @@
 mod audio;
 mod connection;
 mod device;
+mod fec;
 mod jvm;
 mod legacy_packets;
 mod logging_backend;
+mod nal;
 mod util;
 
 use crate::{

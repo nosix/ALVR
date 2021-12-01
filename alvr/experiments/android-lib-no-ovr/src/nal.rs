@@ -1,0 +1,150 @@
+use crate::{
+    fec::FecQueue,
+    legacy_packets::{AlvrCodec, VideoFrameHeader},
+};
+use alvr_common::prelude::*;
+use bytes::{Bytes, Buf};
+use jni::JavaVM;
+use std::sync::Arc;
+
+const NAL_TYPE_SPS: u8 = 7;
+const H265_NAL_TYPE_VPS: u8 = 32;
+
+pub struct NalParser {
+    enable_fec: bool,
+    codec: AlvrCodec,
+    queue: FecQueue,
+}
+
+impl NalParser {
+    pub fn new(enable_fec: bool, codec: AlvrCodec) -> NalParser {
+        NalParser {
+            enable_fec,
+            codec,
+            queue: FecQueue::new(),
+        }
+    }
+
+    pub fn process_packet(
+        &mut self, frame_header: VideoFrameHeader, mut frame_buffer: Bytes, fec_failure: &mut bool,
+    ) -> bool {
+        let tracking_frame_index = frame_header.tracking_frame_index;
+
+        if self.enable_fec {
+            if let Err(e) = self.queue.add_video_packet(frame_header, &frame_buffer) {
+                error!("add_video_packet return error '{}'", e);
+                *fec_failure = true;
+            }
+        }
+
+        if !self.queue.reconstruct() {
+            return false;
+        }
+
+        let mut frame_buffer = if self.enable_fec {
+            self.queue.get_frame_buffer()
+        } else {
+            frame_buffer
+        };
+
+        let mut buffer = frame_buffer.clone();
+        buffer.advance(4);
+        let nal_type = if self.codec == AlvrCodec::H264 {
+            buffer.get_u8() & 0x1F
+        } else {
+            buffer.get_u8() >> 1 & 0x3F
+        };
+
+        if (self.codec == AlvrCodec::H264 && nal_type == NAL_TYPE_SPS) ||
+            (self.codec == AlvrCodec::H265 && nal_type == H265_NAL_TYPE_VPS)
+        {
+            // This frame contains (VPS + )SPS + PPS + IDR on NVENC H.264 (H.265) stream.
+            // (VPS + )SPS + PPS has short size (8bytes + 28bytes in some environment),
+            // so we can assume SPS + PPS is contained in first fragment.
+            let end = match self.find_vps_sps(frame_buffer.clone()) {
+                Ok(end) => end,
+                Err(_) => {
+                    // Invalid frame.
+                    error!("Got invalid frame. Too large SPS or PPS?");
+                    return false;
+                }
+            };
+            info!("Got frame={} {}, Codec={:?}", nal_type, end, self.codec);
+
+            self.push(frame_buffer.split_to(end), tracking_frame_index);
+            self.push(frame_buffer, tracking_frame_index);
+
+            *fec_failure = false;
+        } else {
+            self.push(frame_buffer, tracking_frame_index);
+        }
+
+        true
+    }
+
+    fn find_vps_sps(&self, frame_buffer: Bytes) -> Result<usize, ()> {
+        let mut zeros = 0;
+        let mut found_nals = 0;
+        for (i, b) in frame_buffer.iter().enumerate() {
+            match b {
+                0 => {
+                    zeros += 1;
+                }
+                1 => {
+                    if zeros >= 2 {
+                        found_nals += 1;
+                        match self.codec {
+                            AlvrCodec::H264 if found_nals >= 3 => {
+                                // Find end of SPS+PPS on H.264.
+                                return Ok(i - 3);
+                            }
+                            AlvrCodec::H265 if found_nals >= 4 => {
+                                // Find end of VPS+SPS+PPS on H.264.
+                                return Ok(i - 3);
+                            }
+                            _ => {}
+                        }
+                    }
+                    zeros = 0;
+                }
+                _ => {
+                    zeros = 0;
+                }
+            }
+        }
+        Err(())
+    }
+
+    fn push(&self, frame_buffer: Bytes, frame_index: u64) {
+        if frame_buffer.len() >= 4 {
+            info!("Push NAL len={} index={} buf=[{} {} {} {} .. {} {}]",
+                  frame_buffer.len(),
+                  frame_index,
+                  frame_buffer[0], frame_buffer[1], frame_buffer[2], frame_buffer[3],
+                  frame_buffer[frame_buffer.len() - 2], frame_buffer[frame_buffer.len() - 1]
+            );
+        } else {
+            info!("Push NAL len={} index={}",
+                  frame_buffer.len(),
+                  frame_index
+            );
+        }
+
+        // let mut nal = match self.activity.obtain_nal(&self.vm, frame_buffer.len() as i32) {
+        //     Ok(Some(nal)) => nal,
+        //     Ok(None) => {
+        //         error!("NAL queue is full.");
+        //         return;
+        //     }
+        //     Err(message) => {
+        //         error!("{}", message);
+        //         return;
+        //     }
+        // };
+        //
+        // nal.set_frame_index(&self.vm, frame_index as i64);
+        // nal.set_frame_buffer(&self.vm, frame_buffer);
+        //
+        // self.activity.push_nal(&self.vm, nal);
+    }
+}
