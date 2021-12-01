@@ -1,37 +1,67 @@
 mod audio;
 mod connection;
 mod device;
+mod jvm;
 mod legacy_packets;
 mod logging_backend;
 mod util;
 
-use crate::device::Device;
+use crate::{
+    device::Device,
+    jvm::Preferences,
+};
 use alvr_common::prelude::*;
-use jni::{JNIEnv, objects::JObject, sys::jstring};
+use alvr_sockets::PrivateIdentity;
+use jni::{
+    JNIEnv, objects::JObject,
+    sys::{jboolean, jstring},
+};
 use once_cell::sync::Lazy;
+use parking_lot::Mutex;
 
 static DEVICE: Lazy<Device> = Lazy::new(|| Device::new("Android ALVR"));
+static MAYBE_IDENTITY: Lazy<Mutex<Option<PrivateIdentity>>> = Lazy::new(|| Mutex::new(None));
 
+/// Execute the $b with the return value $t, call 'show_err' and return Option<$t>.
+/// The default of $t is ().
 macro_rules! catch_err {
-    ( $b:block ) => {
-        let s = || -> StrResult {
-            $b
-            Ok(())
+    ($b:block,$t:ty) => {{
+        let s = || -> StrResult<$t> {
+            Ok($b)
         };
-        show_err(s());
-    }
+        show_err(s())
+    }};
+    ($b:block) => {
+        catch_err!($b,())
+    };
 }
 
 #[no_mangle]
-pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_stringFromJni(
+pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_initPreferences(
     env: JNIEnv,
-    _this: JObject,
-) -> jstring {
-    let hello = "Hello from Rust";
+    _: JObject,
+    preferences: JObject,
+) -> jboolean {
+    catch_err!({
+        let preferences = Preferences::new(env, preferences);
+        let mut is_changed = false;
 
-    env.new_string(hello)
-        .expect("Couldn't create Java string!")
-        .into_inner()
+        if preferences.is_empty() {
+            let identity = trace_err!(alvr_sockets::create_identity(None))?;
+            preferences.set_hostname(&identity.hostname);
+            preferences.set_certificate_pem(&identity.certificate_pem);
+            preferences.set_key_pem(&identity.key_pem);
+            is_changed = true;
+        };
+
+        *MAYBE_IDENTITY.lock() = Some(PrivateIdentity {
+            hostname: preferences.get_hostname().into(),
+            certificate_pem: preferences.get_certificate_pem().into(),
+            key_pem: preferences.get_key_pem().into()
+        });
+
+        is_changed
+    }, bool).unwrap_or(false).into()
 }
 
 #[no_mangle]
@@ -48,7 +78,8 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onStart(
     _: JObject,
 ) {
     catch_err!({
-        let identity = trace_err!(alvr_sockets::create_identity(None))?;
+        let identity = clone_identity(MAYBE_IDENTITY.lock().as_ref()
+            .ok_or("Identity has not been initialized. Call initPreferences before onStart.")?);
         trace_err!(connection::connect(&DEVICE, identity))?;
     });
 }
@@ -59,4 +90,12 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onStop(
     _: JObject,
 ) {
     connection::disconnect();
+}
+
+fn clone_identity(identity: &PrivateIdentity) -> PrivateIdentity {
+    PrivateIdentity {
+        hostname: identity.hostname.clone(),
+        certificate_pem: identity.certificate_pem.clone(),
+        key_pem: identity.key_pem.clone()
+    }
 }

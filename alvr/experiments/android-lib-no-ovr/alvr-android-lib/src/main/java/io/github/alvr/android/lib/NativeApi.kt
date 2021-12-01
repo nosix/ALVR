@@ -2,7 +2,16 @@ package io.github.alvr.android.lib
 
 class NativeApi {
 
-    external fun stringFromJni(): String
+    /**
+     * Initialize preference values.
+     *
+     * Call before onStart.
+     *
+     * @param preferences set preferences, preferences may change
+     * @return true when a preference changed
+     */
+    external fun initPreferences(preferences: AlvrPreferences): Boolean
+
     external fun onCreate()
     external fun onStart()
     external fun onStop()
