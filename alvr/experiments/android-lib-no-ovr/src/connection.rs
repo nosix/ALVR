@@ -2,6 +2,7 @@ use crate::{
     audio,
     device::Device,
     legacy_packets::*,
+    legacy_stream::StreamHandler,
     util,
 };
 use alvr_common::{
@@ -410,17 +411,14 @@ fn legacy_stream_socket_loop(
         // let activity_obj = activity.as_obj();
         // let nal_class: JClass = nal_class_ref.as_obj().into();
 
-        // let mut server_connection = ServerConnection::new(
-        //     Arc::clone(&java_vm),
-        //     Arc::clone(&activity),
-        //     AlvrCodec::from(codec),
-        //     enable_fec
-        // );
+        let push_nal = |frame_buffer: Bytes, frame_index: u64| {
+            info!("push_nal {} {}", frame_buffer.len(), frame_index);
+        };
+        let mut handler = StreamHandler::new(enable_fec, codec.into(), push_nal);
 
         // let mut idr_request_deadline = None;
 
         while let Ok(mut data) = legacy_receive_data_receiver.recv() {
-            info!("legacy_receive_data {:?}", data);
             // Send again IDR packet every 2s in case it is missed
             // (due to dropped burst of packets at the start of the stream or otherwise).
             //     if !crate::IDR_PARSED.load(Ordering::Relaxed) {
@@ -438,9 +436,7 @@ fn legacy_stream_socket_loop(
             //     if !DISABLE_UNSAFE {
             //         crate::legacyReceive(data.as_mut_ptr(), data.len() as _);
             //     }
-            //     server_connection.legacy_receive(data.freeze());
-            // }
-            //
+            handler.legacy_receive(data.freeze());
         }
 
         // crate::IS_CONNECTED.store(false, Ordering::Relaxed);

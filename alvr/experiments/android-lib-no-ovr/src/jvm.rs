@@ -60,3 +60,17 @@ impl<'a> Preferences<'a> {
         }
     }
 }
+
+pub struct InputBuffer<'a> {
+    env: JNIEnv<'a>,
+    object: JObject<'a>
+}
+
+impl<'a> InputBuffer<'a> {
+    pub fn new(env: JNIEnv<'a>, object: JObject<'a>) -> InputBuffer<'a> {
+        InputBuffer {
+            env,
+            object
+        }
+    }
+}

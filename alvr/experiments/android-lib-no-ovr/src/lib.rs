@@ -3,7 +3,9 @@ mod connection;
 mod device;
 mod fec;
 mod jvm;
+mod latency_controller;
 mod legacy_packets;
+mod legacy_stream;
 mod logging_backend;
 mod nal;
 mod util;
@@ -20,6 +22,7 @@ use jni::{
 };
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
+use crate::jvm::InputBuffer;
 
 static DEVICE: Lazy<Device> = Lazy::new(|| Device::new("Android ALVR"));
 static MAYBE_IDENTITY: Lazy<Mutex<Option<PrivateIdentity>>> = Lazy::new(|| Mutex::new(None));
@@ -92,6 +95,18 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onStop(
     _: JObject,
 ) {
     connection::disconnect();
+}
+
+#[no_mangle]
+pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_notifyAvailableInputBuffer(
+    env: JNIEnv,
+    _: JObject,
+    buffer: JObject
+) {
+    catch_err!({
+        let buffer = InputBuffer::new(env, buffer);
+        // TODO
+    });
 }
 
 fn clone_identity(identity: &PrivateIdentity) -> PrivateIdentity {

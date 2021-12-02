@@ -10,17 +10,23 @@ use std::sync::Arc;
 const NAL_TYPE_SPS: u8 = 7;
 const H265_NAL_TYPE_VPS: u8 = 32;
 
-pub struct NalParser {
+pub struct NalParser<F> where F : Fn(Bytes, u64) {
     enable_fec: bool,
     codec: AlvrCodec,
+    push_nal: F,
     queue: FecQueue,
 }
 
-impl NalParser {
-    pub fn new(enable_fec: bool, codec: AlvrCodec) -> NalParser {
+impl<F> NalParser<F> where F : Fn(Bytes, u64) {
+    pub fn new(
+        enable_fec: bool,
+        codec: AlvrCodec,
+        push_nal: F
+    ) -> NalParser<F> {
         NalParser {
             enable_fec,
             codec,
+            push_nal,
             queue: FecQueue::new(),
         }
     }
@@ -116,19 +122,25 @@ impl NalParser {
     }
 
     fn push(&self, frame_buffer: Bytes, frame_index: u64) {
-        if frame_buffer.len() >= 4 {
-            info!("Push NAL len={} index={} buf=[{} {} {} {} .. {} {}]",
+        if frame_buffer.len() > 8 {
+            info!("push_nal len={} index={} buf=[{} {} {} {} .. {} {} {} {}]",
                   frame_buffer.len(),
                   frame_index,
                   frame_buffer[0], frame_buffer[1], frame_buffer[2], frame_buffer[3],
-                  frame_buffer[frame_buffer.len() - 2], frame_buffer[frame_buffer.len() - 1]
+                  frame_buffer[frame_buffer.len() - 4],
+                  frame_buffer[frame_buffer.len() - 3],
+                  frame_buffer[frame_buffer.len() - 2],
+                  frame_buffer[frame_buffer.len() - 1],
             );
         } else {
-            info!("Push NAL len={} index={}",
+            info!("push_nal len={} index={} buf={:?}",
                   frame_buffer.len(),
-                  frame_index
+                  frame_index,
+                  frame_buffer
             );
         }
+
+        (self.push_nal)(frame_buffer, frame_index);
 
         // let mut nal = match self.activity.obtain_nal(&self.vm, frame_buffer.len() as i32) {
         //     Ok(Some(nal)) => nal,

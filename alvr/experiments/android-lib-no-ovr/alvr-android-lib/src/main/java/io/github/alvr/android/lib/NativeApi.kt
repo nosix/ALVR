@@ -16,6 +16,8 @@ class NativeApi {
     external fun onStart()
     external fun onStop()
 
+    external fun notifyAvailableInputBuffer(buffer: InputBuffer)
+
     companion object {
         init {
             System.loadLibrary("alvr_android")

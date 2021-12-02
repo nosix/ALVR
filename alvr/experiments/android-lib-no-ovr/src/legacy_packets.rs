@@ -1,3 +1,4 @@
+use alvr_session::CodecType;
 use bincode;
 use bytes::{Bytes, Buf};
 use serde::{Serialize, Deserialize};
@@ -55,6 +56,15 @@ impl From<u32> for AlvrCodec {
             0 => AlvrCodec::H264,
             1 => AlvrCodec::H265,
             _ => AlvrCodec::Unknown
+        }
+    }
+}
+
+impl From<CodecType> for AlvrCodec {
+    fn from(t: CodecType) -> AlvrCodec {
+        match t {
+            CodecType::H264 => AlvrCodec::H264,
+            CodecType::HEVC => AlvrCodec::H265,
         }
     }
 }
@@ -426,29 +436,3 @@ fn deserialize<T>(buffer: Bytes) -> T {
 fn serialize<T>(packet: T) -> Vec<u8> where T : Serialize {
     bincode::serialize(&packet).unwrap()
 }
-
-// #[derive(Debug)]
-// pub enum AlvrPacket {
-//     TrackingInfo(TrackingInfo),
-//     TimeSync(TimeSync),
-//     VideoFrame { header: VideoFrameHeader, payload: Bytes },
-//     PacketErrorReport(PacketErrorReport),
-//     HapticsFeedback(HapticsFeedback),
-//     Unknown(Bytes),
-// }
-//
-// impl From<Bytes> for AlvrPacket {
-//     fn from(buffer: Bytes) -> AlvrPacket {
-//         match AlvrPacketType::from(buffer.clone().get_u32_le()) {
-//             AlvrPacketType::TrackingInfo => AlvrPacket::TrackingInfo(buffer.into()),
-//             AlvrPacketType::TimeSync => AlvrPacket::TimeSync(buffer.into()),
-//             AlvrPacketType::VideoFrame => {
-//                 let payload = buffer.clone().split_off(mem::size_of::<VideoFrameHeader>());
-//                 AlvrPacket::VideoFrame { header: buffer.into(), payload }
-//             },
-//             AlvrPacketType::PacketErrorReport => AlvrPacket::PacketErrorReport(buffer.into()),
-//             AlvrPacketType::HapticsFeedback => AlvrPacket::HapticsFeedback(buffer.into()),
-//             AlvrPacketType::Unknown => AlvrPacket::Unknown(buffer)
-//         }
-//     }
-// }
