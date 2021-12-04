@@ -104,7 +104,13 @@ impl InputBuffer {
         if let JValue::Object(byte_buffer) = ret_value {
             let buffer = trace_err!(env.get_direct_buffer_address(byte_buffer.into()))?;
             buffer[..nal.frame_buffer.len()].copy_from_slice(&nal.frame_buffer);
-            env.call_method(&self.object, method_name, "()V", &[]);
+            env.call_method(
+                byte_buffer, "position", "(I)Ljava/nio/Buffer;",
+                &[(nal.frame_buffer.len() as i32).into()]
+            );
+            env.call_method(
+                &self.object, method_name, "()V", &[]
+            );
             Ok(())
         } else {
             Err("Can't get the byte buffer.".into())

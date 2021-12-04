@@ -76,7 +76,7 @@ class Decoder(
         }
 
         override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {
-            TODO("Not yet implemented")
+            Log.i(TAG, "onOutputFormatChanged $format");
         }
 
         override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {

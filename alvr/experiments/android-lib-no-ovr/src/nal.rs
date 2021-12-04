@@ -142,7 +142,7 @@ impl<F> NalParser<F> where F : Fn(Nal) {
         let nal_type = self.detect_nal_type(&frame_buffer);
 
         if frame_buffer.len() > 8 {
-            info!("push_nal {:?} len={} index={} buf=[{} {} {} {} .. {} {} {} {}]",
+            debug!("push_nal {:?} len={} index={} buf=[{} {} {} {} .. {} {} {} {}]",
                   nal_type,
                   frame_buffer.len(),
                   frame_index,
@@ -153,7 +153,7 @@ impl<F> NalParser<F> where F : Fn(Nal) {
                   frame_buffer[frame_buffer.len() - 1],
             );
         } else {
-            info!("push_nal {:?} len={} index={} buf={:?}",
+            debug!("push_nal {:?} len={} index={} buf={:?}",
                   nal_type,
                   frame_buffer.len(),
                   frame_index,

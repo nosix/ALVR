@@ -65,8 +65,8 @@ impl FecQueue {
         if self.current_frame.video_frame_index != header.video_frame_index {
             // Check previous frame
             if !self.recovered {
-                info!("Previous frame cannot be recovered.");
-                self.info();
+                debug!("Previous frame cannot be recovered.");
+                self.debug();
                 fec_failure = true;
             }
 
@@ -101,7 +101,7 @@ impl FecQueue {
             let required_buffer_size = self.total_shards * self.block_size;
             if self.frame_buffer.len() < required_buffer_size {
                 // Only expand buffer for performance reason.
-                info!("Resize frame_buffer to {}", required_buffer_size);
+                debug!("Resize frame_buffer to {}", required_buffer_size);
                 self.frame_buffer.resize(required_buffer_size, 0);
             }
 
@@ -141,22 +141,22 @@ impl FecQueue {
                 && self.first_packet_of_next_frame != start_packet as u32
             {
                 // Whole frame packet loss
-                info!("Previous frame was completely lost. start_packet={}", start_packet);
-                self.info();
+                debug!("Previous frame was completely lost. start_packet={}", start_packet);
+                self.debug();
                 fec_failure = true;
             }
 
             self.first_packet_of_next_frame = next_start_packet as u32;
 
-            info!("Start new frame.");
-            self.info();
+            debug!("Start new frame.");
+            self.debug();
         }
 
         let shard_index = fec_index / self.shard_packets;
         let packet_index = fec_index % self.shard_packets;
         if self.marks[packet_index][shard_index] == 0 {
             // Duplicate packet.
-            info!("Packet duplication. packet_counter={}, fec_index={}", packet_counter, fec_index);
+            debug!("Packet duplication. packet_counter={}, fec_index={}", packet_counter, fec_index);
             return if !fec_failure { Ok(()) } else { Err("FEC failed".into()) };
         }
 
@@ -231,7 +231,7 @@ impl FecQueue {
             }
             if self.received_data_shards[pi] == self.total_data_shards as u32 {
                 // We've received a full packet with no need for FEC.
-                info!("No need for FEC. packet_index={}", pi);
+                debug!("No need for FEC. packet_index={}", pi);
                 self.recovered_packet[pi] = true;
                 continue;
             }
@@ -243,7 +243,7 @@ impl FecQueue {
                 continue;
             }
 
-            info!(
+            debug!(
                 "Recovering. packet_index={} received_data_shards={}/{} received_parity_shards={}/{}",
                 pi,
                 self.received_data_shards[pi], self.total_data_shards,
@@ -275,7 +275,7 @@ impl FecQueue {
 
         if ret {
             self.recovered = true;
-            info!("Frame was successfully recovered by FEC.");
+            debug!("Frame was successfully recovered by FEC.");
         }
 
         ret
@@ -286,8 +286,8 @@ impl FecQueue {
         Bytes::copy_from_slice(p)
     }
 
-    fn info(&self) {
-        info!(
+    fn debug(&self) {
+        debug!(
             "video_frame_index={} shards={}:{} frame_byte_size={} fec_percentage={} total_shards={} shard_packets={} block_size={} first_packet_of_next_frame={} current_packet={}",
             self.current_frame.video_frame_index,
             self.total_data_shards,
@@ -301,7 +301,7 @@ impl FecQueue {
             self.current_frame.packet_counter
         );
         for i in 0..self.shard_packets {
-            info!(
+            debug!(
                 "packet_index={}, shards={}:{}",
                 i,
                 self.received_data_shards[i],

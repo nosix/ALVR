@@ -79,47 +79,47 @@ impl LatencyController {
 
     pub fn estimated_sent(&mut self, frame_index: u64, offset: u64) {
         self.get_frame(frame_index).estimated_sent = util::get_timestamp_us() - offset;
-        info!("estimated_sent {}", self.get_frame(frame_index).estimated_sent);
+        debug!("estimated_sent {}", self.get_frame(frame_index).estimated_sent);
     }
 
     pub fn received(&mut self, frame_index: u64, timestamp: u64) {
         self.get_frame(frame_index).received = timestamp;
-        info!("received {}", self.get_frame(frame_index).received);
+        debug!("received {}", self.get_frame(frame_index).received);
     }
 
     pub fn received_first(&mut self, frame_index: u64) {
         self.get_frame(frame_index).received_first = util::get_timestamp_us();
-        info!("received_first {}", self.get_frame(frame_index).received_first);
+        debug!("received_first {}", self.get_frame(frame_index).received_first);
     }
 
     pub fn received_last(&mut self, frame_index: u64) {
         self.get_frame(frame_index).received_last = util::get_timestamp_us();
-        info!("received_last {}", self.get_frame(frame_index).received_last);
+        debug!("received_last {}", self.get_frame(frame_index).received_last);
     }
 
     pub fn decoder_input(&mut self, frame_index: u64) {
         self.get_frame(frame_index).decoder_input = util::get_timestamp_us();
-        info!("decoder_input {}", self.get_frame(frame_index).decoder_input);
+        debug!("decoder_input {}", self.get_frame(frame_index).decoder_input);
     }
 
     pub fn decoder_output(&mut self, frame_index: u64) {
         self.get_frame(frame_index).decoder_output = util::get_timestamp_us();
-        info!("decoder_output {}", self.get_frame(frame_index).decoder_output);
+        debug!("decoder_output {}", self.get_frame(frame_index).decoder_output);
     }
 
     pub fn rendered1(&mut self, frame_index: u64) {
         self.get_frame(frame_index).rendered1 = util::get_timestamp_us();
-        info!("rendered1 {}", self.get_frame(frame_index).rendered1);
+        debug!("rendered1 {}", self.get_frame(frame_index).rendered1);
     }
 
     pub fn rendered2(&mut self, frame_index: u64) {
         self.get_frame(frame_index).rendered2 = util::get_timestamp_us();
-        info!("rendered2 {}", self.get_frame(frame_index).rendered2);
+        debug!("rendered2 {}", self.get_frame(frame_index).rendered2);
     }
 
     pub fn tracking(&mut self, frame_index: u64) {
         self.get_frame(frame_index).tracking = util::get_timestamp_us();
-        info!("tracking {}", self.get_frame(frame_index).tracking);
+        debug!("tracking {}", self.get_frame(frame_index).tracking);
     }
 
     pub fn submit(&mut self, frame_index: u64) {
@@ -146,14 +146,14 @@ impl LatencyController {
         self.check_and_reset_second();
         self.packets_lost_total += lost;
         self.packets_lost_in_second += lost;
-        info!("packet_loss {} {}", self.packets_lost_total, self.packets_lost_in_second);
+        debug!("packet_loss {} {}", self.packets_lost_total, self.packets_lost_in_second);
     }
 
     pub fn fec_failure(&mut self) {
         self.check_and_reset_second();
         self.fec_failure_total += 1;
         self.fec_failure_in_second += 1;
-        info!("fec_failure {} {}", self.fec_failure_total, self.fec_failure_in_second);
+        debug!("fec_failure {} {}", self.fec_failure_total, self.fec_failure_in_second);
     }
 
     pub fn set_total_latency(&mut self, latency: u32) {
@@ -161,7 +161,7 @@ impl LatencyController {
             self.server_total_latency =
                 ((latency as f32) * 0.05 + (self.server_total_latency as f32) * 0.95) as u32;
         }
-        info!("set_total_latency {}", self.server_total_latency);
+        debug!("set_total_latency {}", self.server_total_latency);
     }
 
     fn get_frame(&mut self, frame_index: u64) -> &mut FrameTimestamp {

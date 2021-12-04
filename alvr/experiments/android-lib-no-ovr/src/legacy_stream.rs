@@ -52,7 +52,7 @@ impl<F> StreamHandler<F> where F : Fn(Nal) {
     fn process_video_frame(
         &mut self, video_frame_header: VideoFrameHeader, video_frame_buffer: Bytes,
     ) {
-        info!("{:?}", video_frame_header);
+        debug!("{:?}", video_frame_header);
 
         let tracking_frame_index = video_frame_header.tracking_frame_index;
         if self.last_frame_index != tracking_frame_index {
@@ -110,7 +110,7 @@ impl<F> StreamHandler<F> where F : Fn(Nal) {
     }
 
     fn process_time_sync(&mut self, time_sync: TimeSync) {
-        info!("{:?}", time_sync);
+        debug!("{:?}", time_sync);
 
         let current = util::get_timestamp_us();
         match time_sync.mode {
@@ -122,7 +122,7 @@ impl<F> StreamHandler<F> where F : Fn(Nal) {
                 let rtt = current - time_sync.client_time;
                 self.time_diff =
                     time_sync.server_time as i64 + rtt as i64 / 2 - current as i64;
-                info!("TimeSync: server - client = {} us RTT = {} us", self.time_diff, rtt);
+                debug!("TimeSync: server - client = {} us RTT = {} us", self.time_diff, rtt);
                 Self::send_time_sync(time_sync, current);
             }
             3 => {
@@ -135,7 +135,7 @@ impl<F> StreamHandler<F> where F : Fn(Nal) {
     }
 
     fn process_haptics_feedback(&mut self, haptics_feedback: HapticsFeedback) {
-        info!("{:?}", haptics_feedback);
+        debug!("{:?}", haptics_feedback);
 
         // self.activity.on_haptics_feedback(
         //     &self.vm,

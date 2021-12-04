@@ -36,9 +36,8 @@ class MainActivity : AppCompatActivity() {
         }
         nativeApi.onCreate()
 
-        decoder = Decoder {
-            Log.d(TAG, "buffer_queue push InputBuffer");
-            nativeApi.pushAvailableInputBuffer(it)
+        decoder = Decoder { inputBuffer ->
+            nativeApi.pushAvailableInputBuffer(inputBuffer)
         }
     }
 
