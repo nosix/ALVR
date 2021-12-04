@@ -10,15 +10,16 @@ use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use std::{
     collections::VecDeque,
-    sync::Arc
+    sync::Arc,
+    sync::mpsc as smpsc,
 };
-use tokio::sync::mpsc as tmpsc;
+use tokio::task;
 use jni::descriptors::Desc;
 
-static INPUT_BUFFER_SENDER: Lazy<Mutex<Option<tmpsc::UnboundedSender<InputBuffer>>>> =
+static INPUT_BUFFER_SENDER: Lazy<Mutex<Option<smpsc::Sender<InputBuffer>>>> =
     Lazy::new(|| Mutex::new(None));
 
-static NAL_SENDER: Lazy<Mutex<Option<tmpsc::Sender<Nal>>>> =
+static NAL_SENDER: Lazy<Mutex<Option<smpsc::SyncSender<Nal>>>> =
     Lazy::new(|| Mutex::new(None));
 
 static WAITING_INPUT_BUFFER: Lazy<Mutex<VecDeque<InputBuffer>>> =
@@ -26,12 +27,13 @@ static WAITING_INPUT_BUFFER: Lazy<Mutex<VecDeque<InputBuffer>>> =
 
 const QUEUE_LIMIT: usize = 128;
 
-pub fn push_input_buffer(buffer: InputBuffer) {
+pub fn push_input_buffer(buffer: InputBuffer) -> StrResult {
     if let Some(input_buffer_sender) = INPUT_BUFFER_SENDER.lock().as_ref() {
-        input_buffer_sender.send(buffer);
+        trace_err!(input_buffer_sender.send(buffer))?;
     } else {
         WAITING_INPUT_BUFFER.lock().push_back(buffer);
     }
+    Ok(())
 }
 
 pub fn push_nal(nal: Nal) {
@@ -42,26 +44,31 @@ pub fn push_nal(nal: Nal) {
     });
 }
 
-pub async fn buffer_coordination_loop(vm: Arc<JavaVM>) -> StrResult {
-    let (input_buffer_sender, mut input_buffer_receiver) = tmpsc::unbounded_channel();
-    let (nal_sender, mut nal_receiver) = tmpsc::channel(QUEUE_LIMIT);
+pub fn buffer_coordination_loop(vm: Arc<JavaVM>) -> task::JoinHandle<StrResult> {
+    let (input_buffer_sender, mut input_buffer_receiver) = smpsc::channel();
+    let (nal_sender, mut nal_receiver) = smpsc::sync_channel(QUEUE_LIMIT);
     *INPUT_BUFFER_SENDER.lock() = Some(input_buffer_sender);
     *NAL_SENDER.lock() = Some(nal_sender);
 
-    for waiting_buffer in WAITING_INPUT_BUFFER.lock().drain(..) {
-        push_input_buffer(waiting_buffer);
-    }
+    // The main stream loop must be run in a normal thread, because it needs to access the JNI env
+    // many times per second. If using a future I'm forced to attach and detach the env continuously.
+    // When the parent function exits or gets canceled, this loop will run to finish.
+    task::spawn_blocking(move || -> StrResult {
+        let env = trace_err!(vm.attach_current_thread_permanently())?;
 
-    loop {
-        let input_buffer = input_buffer_receiver.recv().await
-            .ok_or("InputBuffer can't be received.")?;
-        let nal = nal_receiver.recv().await
-            .ok_or("NAL can't be received.")?;
-
-        if nal.nal_type == NalType::Sps {
-            input_buffer.queue_config(&vm, nal);
-        } else {
-            input_buffer.queue(&vm, nal);
+        for waiting_buffer in WAITING_INPUT_BUFFER.lock().drain(..) {
+            push_input_buffer(waiting_buffer)?;
         }
-    }
+
+        loop {
+            let input_buffer = trace_err!(input_buffer_receiver.recv())?;
+            let nal = trace_err!(nal_receiver.recv())?;
+
+            if nal.nal_type == NalType::Sps {
+                input_buffer.queue_config(&env, nal)?;
+            } else {
+                input_buffer.queue(&env, nal)?;
+            }
+        }
+    })
 }

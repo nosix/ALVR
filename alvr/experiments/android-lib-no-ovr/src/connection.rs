@@ -259,16 +259,8 @@ async fn connection_pipeline(
         stream_socket.request_stream::<_, LEGACY>().await?,
     );
 
-    // legacy_receive_data_receiver is used by the sync context.
-    let (legacy_receive_data_sender, legacy_receive_data_receiver) = smpsc::channel();
-
     let legacy_receive_loop = legacy_receive_loop(
         stream_socket.subscribe_to_stream::<(), LEGACY>().await?,
-        legacy_receive_data_sender,
-    );
-
-    let legacy_stream_socket_loop = legacy_stream_socket_loop(
-        legacy_receive_data_receiver,
         settings.video.codec,
         settings.connection.enable_fec,
     );
@@ -313,8 +305,7 @@ async fn connection_pipeline(
         res = spawn_cancelable(playspace_sync_loop) => res,
         res = spawn_cancelable(legacy_send_loop) => res,
         res = spawn_cancelable(legacy_receive_loop) => res,
-        res = legacy_stream_socket_loop => trace_err!(res)?,
-        res = buffer_queue::buffer_coordination_loop(vm) => res,
+        res = buffer_queue::buffer_coordination_loop(vm) => trace_err!(res)?,
 
         // keep these loops on the current task
         res = keepalive_sender_loop => res,
@@ -394,63 +385,50 @@ async fn legacy_send_loop(
 
 async fn legacy_receive_loop(
     mut socket_receiver: StreamReceiver<(), LEGACY>,
-    legacy_receive_data_sender: smpsc::Sender<BytesMut>,
-) -> StrResult {
-    loop {
-        let packet = socket_receiver.recv().await?;
-        legacy_receive_data_sender.send(packet.buffer).ok();
-    }
-}
-
-fn legacy_stream_socket_loop(
-    legacy_receive_data_receiver: smpsc::Receiver<BytesMut>,
     codec: CodecType,
     enable_fec: bool,
-) -> task::JoinHandle<StrResult> {
-    // The main stream loop must be run in a normal thread, because it needs to access the JNI env
-    // many times per second. If using a future I'm forced to attach and detach the env continuously.
-    // When the parent function exits or gets canceled, this loop will run to finish.
-    task::spawn_blocking(move || -> StrResult {
-        // let java_vm = Arc::clone(&java_vm);
-        // let activity = Arc::clone(&activity);
-        // let nal_class_ref = Arc::clone(&nal_class_ref);
+) -> StrResult {
+    // let java_vm = Arc::clone(&java_vm);
+    // let activity = Arc::clone(&activity);
+    // let nal_class_ref = Arc::clone(&nal_class_ref);
 
-        // let env = trace_err!(java_vm.attach_current_thread())?;
-        // let env_ptr = env.get_native_interface() as _;
-        // let activity_obj = activity.as_obj();
-        // let nal_class: JClass = nal_class_ref.as_obj().into();
+    // let env = trace_err!(java_vm.attach_current_thread())?;
+    // let env_ptr = env.get_native_interface() as _;
+    // let activity_obj = activity.as_obj();
+    // let nal_class: JClass = nal_class_ref.as_obj().into();
 
-        let push_nal = buffer_queue::push_nal;
+    let push_nal = buffer_queue::push_nal;
 
-        let mut handler = StreamHandler::new(enable_fec, codec.into(), push_nal);
+    let mut handler = StreamHandler::new(enable_fec, codec.into(), push_nal);
 
-        // let mut idr_request_deadline = None;
+    // let mut idr_request_deadline = None;
 
-        while let Ok(mut data) = legacy_receive_data_receiver.recv() {
-            // Send again IDR packet every 2s in case it is missed
-            // (due to dropped burst of packets at the start of the stream or otherwise).
-            //     if !crate::IDR_PARSED.load(Ordering::Relaxed) {
-            //         if let Some(deadline) = idr_request_deadline {
-            //             if deadline < Instant::now() {
-            //                 crate::IDR_REQUEST_NOTIFIER.notify_waiters();
-            //                 idr_request_deadline = None;
-            //             }
-            //         } else {
-            //             idr_request_deadline = Some(Instant::now() + Duration::from_secs(2));
-            //         }
-            //     }
-            //
-            //     crate::IS_CONNECTED.store(true, Ordering::Relaxed);
-            //     if !DISABLE_UNSAFE {
-            //         crate::legacyReceive(data.as_mut_ptr(), data.len() as _);
-            //     }
-            handler.legacy_receive(data.freeze());
-        }
+    while let mut packet = socket_receiver.recv().await? {
+        let data = packet.buffer;
 
-        // crate::IS_CONNECTED.store(false, Ordering::Relaxed);
+        // Send again IDR packet every 2s in case it is missed
+        // (due to dropped burst of packets at the start of the stream or otherwise).
+        //     if !crate::IDR_PARSED.load(Ordering::Relaxed) {
+        //         if let Some(deadline) = idr_request_deadline {
+        //             if deadline < Instant::now() {
+        //                 crate::IDR_REQUEST_NOTIFIER.notify_waiters();
+        //                 idr_request_deadline = None;
+        //             }
+        //         } else {
+        //             idr_request_deadline = Some(Instant::now() + Duration::from_secs(2));
+        //         }
+        //     }
+        //
+        //     crate::IS_CONNECTED.store(true, Ordering::Relaxed);
+        //     if !DISABLE_UNSAFE {
+        //         crate::legacyReceive(data.as_mut_ptr(), data.len() as _);
+        //     }
+        handler.legacy_receive(data.freeze());
+    }
 
-        Ok(())
-    })
+    // crate::IS_CONNECTED.store(false, Ordering::Relaxed);
+
+    Ok(())
 }
 
 async fn control_send_loop(

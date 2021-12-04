@@ -81,16 +81,12 @@ impl InputBuffer {
         })
     }
 
-    pub fn queue_config(&self, vm: &JavaVM, nal: Nal) -> StrResult {
-        let env = trace_err!(vm.attach_current_thread())?;
-        self.call_queue_method(&env, "queueConfig", nal);
-        Ok(())
+    pub fn queue_config(&self, env: &JNIEnv, nal: Nal) -> StrResult {
+        self.call_queue_method(&env, "queueConfig", nal)
     }
 
-    pub fn queue(&self, vm: &JavaVM, nal: Nal) -> StrResult {
-        let env = trace_err!(vm.attach_current_thread())?;
-        self.call_queue_method(&env, "queue", nal);
-        Ok(())
+    pub fn queue(&self, env: &JNIEnv, nal: Nal) -> StrResult {
+        self.call_queue_method(&env, "queue", nal)
     }
 
     fn call_queue_method(&self, env: &JNIEnv, method_name: &str, nal: Nal) -> StrResult {
@@ -104,13 +100,13 @@ impl InputBuffer {
         if let JValue::Object(byte_buffer) = ret_value {
             let buffer = trace_err!(env.get_direct_buffer_address(byte_buffer.into()))?;
             buffer[..nal.frame_buffer.len()].copy_from_slice(&nal.frame_buffer);
-            env.call_method(
+            trace_err!(env.call_method(
                 byte_buffer, "position", "(I)Ljava/nio/Buffer;",
                 &[(nal.frame_buffer.len() as i32).into()]
-            );
-            env.call_method(
+            ))?;
+            trace_err!(env.call_method(
                 &self.object, method_name, "()V", &[]
-            );
+            ))?;
             Ok(())
         } else {
             Err("Can't get the byte buffer.".into())

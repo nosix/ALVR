@@ -107,7 +107,7 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_pushAvailableIn
 ) {
     catch_err!({
         let input_buffer = InputBuffer::new(env, buffer)?;
-        buffer_queue::push_input_buffer(input_buffer);
+        buffer_queue::push_input_buffer(input_buffer)?;
     });
 }
 
