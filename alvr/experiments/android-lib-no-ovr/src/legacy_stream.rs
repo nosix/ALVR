@@ -1,21 +1,21 @@
 use crate::{
     latency_controller,
     legacy_packets::*,
-    nal::NalParser,
+    nal::{Nal, NalParser},
     util,
 };
 use alvr_common::prelude::*;
 use bytes::{Bytes, Buf};
 use std::{sync::Arc, mem};
 
-pub struct StreamHandler<F> where F : Fn(Bytes, u64) {
+pub struct StreamHandler<F> where F : Fn(Nal) {
     time_diff: i64,
     last_frame_index: u64,
     prev_video_sequence: u32,
     nal_parser: NalParser<F>,
 }
 
-impl<F> StreamHandler<F> where F : Fn(Bytes, u64) {
+impl<F> StreamHandler<F> where F : Fn(Nal) {
     pub fn new(
         enable_fec: bool,
         codec: AlvrCodec,

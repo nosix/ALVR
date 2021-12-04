@@ -16,7 +16,7 @@ class NativeApi {
     external fun onStart()
     external fun onStop()
 
-    external fun notifyAvailableInputBuffer(buffer: InputBuffer)
+    external fun pushAvailableInputBuffer(buffer: InputBuffer)
 
     companion object {
         init {

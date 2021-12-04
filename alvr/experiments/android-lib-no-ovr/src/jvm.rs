@@ -1,18 +1,23 @@
-use jni::objects::{JObject, JValue, JString};
-use jni::JNIEnv;
+use crate::nal::Nal;
+use alvr_common::prelude::*;
+use bytes::Bytes;
+use jni::{
+    JavaVM, JNIEnv,
+    objects::{GlobalRef, JObject, JString, JValue},
+};
 
 const STRING_TYPE: &'static str = "Ljava/lang/String;";
 
 pub struct Preferences<'a> {
     env: JNIEnv<'a>,
-    object: JObject<'a>
+    object: JObject<'a>,
 }
 
 impl<'a> Preferences<'a> {
     pub fn new(env: JNIEnv<'a>, object: JObject<'a>) -> Preferences<'a> {
         Preferences {
             env,
-            object
+            object,
         }
     }
 
@@ -61,16 +66,48 @@ impl<'a> Preferences<'a> {
     }
 }
 
-pub struct InputBuffer<'a> {
-    env: JNIEnv<'a>,
-    object: JObject<'a>
+pub struct InputBuffer {
+    object: GlobalRef,
 }
 
-impl<'a> InputBuffer<'a> {
-    pub fn new(env: JNIEnv<'a>, object: JObject<'a>) -> InputBuffer<'a> {
-        InputBuffer {
-            env,
-            object
+unsafe impl Sync for InputBuffer {}
+
+unsafe impl Send for InputBuffer {}
+
+impl InputBuffer {
+    pub fn new(env: JNIEnv, object: JObject) -> StrResult<InputBuffer> {
+        Ok(InputBuffer {
+            object: trace_err!(env.new_global_ref(object))?,
+        })
+    }
+
+    pub fn queue_config(&self, vm: &JavaVM, nal: Nal) -> StrResult {
+        let env = trace_err!(vm.attach_current_thread())?;
+        self.call_queue_method(&env, "queueConfig", nal);
+        Ok(())
+    }
+
+    pub fn queue(&self, vm: &JavaVM, nal: Nal) -> StrResult {
+        let env = trace_err!(vm.attach_current_thread())?;
+        self.call_queue_method(&env, "queue", nal);
+        Ok(())
+    }
+
+    fn call_queue_method(&self, env: &JNIEnv, method_name: &str, nal: Nal) -> StrResult {
+        info!(
+            "{} {:?} frame_len={} frame_index={}",
+            method_name, nal.nal_type, nal.frame_buffer.len(), nal.frame_index
+        );
+        let ret_value = trace_err!(env.call_method(
+            &self.object, "getBuffer", "()Ljava/nio/ByteBuffer;", &[]
+        ))?;
+        if let JValue::Object(byte_buffer) = ret_value {
+            let buffer = trace_err!(env.get_direct_buffer_address(byte_buffer.into()))?;
+            buffer[..nal.frame_buffer.len()].copy_from_slice(&nal.frame_buffer);
+            env.call_method(&self.object, method_name, "()V", &[]);
+            Ok(())
+        } else {
+            Err("Can't get the byte buffer.".into())
         }
     }
 }

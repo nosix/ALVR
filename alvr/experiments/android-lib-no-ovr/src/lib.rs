@@ -1,4 +1,5 @@
 mod audio;
+mod buffer_queue;
 mod connection;
 mod device;
 mod fec;
@@ -79,13 +80,14 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onCreate(
 
 #[no_mangle]
 pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onStart(
-    _: JNIEnv,
+    env: JNIEnv,
     _: JObject,
 ) {
     catch_err!({
+        let vm = trace_err!(env.get_java_vm())?;
         let identity = clone_identity(MAYBE_IDENTITY.lock().as_ref()
             .ok_or("Identity has not been initialized. Call initPreferences before onStart.")?);
-        trace_err!(connection::connect(&DEVICE, identity))?;
+        trace_err!(connection::connect(vm, &DEVICE, identity))?;
     });
 }
 
@@ -98,14 +100,16 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onStop(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_notifyAvailableInputBuffer(
+pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_pushAvailableInputBuffer(
     env: JNIEnv,
     _: JObject,
     buffer: JObject
 ) {
     catch_err!({
-        let buffer = InputBuffer::new(env, buffer);
-        // TODO
+        info!("buffer_queue native push");
+        let input_buffer = InputBuffer::new(env, buffer)?;
+        info!("buffer_queue native push_input_buffer");
+        buffer_queue::push_input_buffer(input_buffer);
     });
 }
 

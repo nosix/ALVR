@@ -1,8 +1,10 @@
 use crate::{
     audio,
+    buffer_queue,
     device::Device,
     legacy_packets::*,
     legacy_stream::StreamHandler,
+    nal::Nal,
     util,
 };
 use alvr_common::{
@@ -14,6 +16,7 @@ use alvr_sockets::*;
 use bincode;
 use bytes::{Bytes, BytesMut};
 use futures::future::BoxFuture;
+use jni::JavaVM;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use serde_json as json;
@@ -22,6 +25,7 @@ use std::{
     future,
     net::{IpAddr, Ipv4Addr},
     sync::mpsc as smpsc,
+    sync::Arc,
     time::Duration,
 };
 use tokio::{
@@ -74,6 +78,7 @@ impl From<String> for ConnectionError {
 }
 
 pub fn connect(
+    vm: JavaVM,
     device: &'static Device,
     private_identity: PrivateIdentity,
 ) -> StrResult<Option<JoinHandle<()>>> {
@@ -85,7 +90,7 @@ pub fn connect(
     }
 
     let runtime = trace_err!(Runtime::new())?;
-    let handle = runtime.spawn(connection_lifecycle_loop(device, private_identity));
+    let handle = runtime.spawn(connection_lifecycle_loop(vm, device, private_identity));
     *maybe_runtime = Some(runtime);
 
     Ok(Some(handle))
@@ -114,15 +119,17 @@ fn notify_event(event: ConnectionEvent) {
 }
 
 async fn connection_lifecycle_loop(
+    vm: JavaVM,
     device: &'static Device,
     identity: PrivateIdentity,
 ) {
     notify_event(ConnectionEvent::Initial);
 
+    let vm = Arc::new(vm);
     loop {
         tokio::join!(
             async {
-                match connection_pipeline(device, &identity).await {
+                match connection_pipeline(Arc::clone(&vm), device, &identity).await {
                     Err(e) => {
                         notify_event(ConnectionEvent::Error(e));
                         time::sleep(RETRY_CONNECT_MIN_INTERVAL).await;
@@ -140,6 +147,7 @@ async fn connection_lifecycle_loop(
 }
 
 async fn connection_pipeline(
+    vm: Arc<JavaVM>,
     device: &'static Device,
     identity: &PrivateIdentity,
 ) -> Result<(), ConnectionError> {
@@ -306,6 +314,7 @@ async fn connection_pipeline(
         res = spawn_cancelable(legacy_send_loop) => res,
         res = spawn_cancelable(legacy_receive_loop) => res,
         res = legacy_stream_socket_loop => trace_err!(res)?,
+        res = buffer_queue::buffer_coordination_loop(vm) => res,
 
         // keep these loops on the current task
         res = keepalive_sender_loop => res,
@@ -411,9 +420,8 @@ fn legacy_stream_socket_loop(
         // let activity_obj = activity.as_obj();
         // let nal_class: JClass = nal_class_ref.as_obj().into();
 
-        let push_nal = |frame_buffer: Bytes, frame_index: u64| {
-            info!("push_nal {} {}", frame_buffer.len(), frame_index);
-        };
+        let push_nal = buffer_queue::push_nal;
+
         let mut handler = StreamHandler::new(enable_fec, codec.into(), push_nal);
 
         // let mut idr_request_deadline = None;

@@ -7,17 +7,34 @@ use bytes::{Bytes, Buf};
 use jni::JavaVM;
 use std::sync::Arc;
 
-const NAL_TYPE_SPS: u8 = 7;
-const H265_NAL_TYPE_VPS: u8 = 32;
+#[derive(Debug, PartialEq)]
+pub enum NalType {
+    Sps,
+    Idr,
+    P
+}
 
-pub struct NalParser<F> where F : Fn(Bytes, u64) {
+const NAL_TYPE_SPS: u8 = 7;
+const NAL_TYPE_IDR: u8 = 5;
+const NAL_TYPE_P: u8 = 1;
+
+const H265_NAL_TYPE_IDR_W_RADL: u8 = 19;
+const H265_NAL_TYPE_VPS:u8 = 32;
+
+pub struct Nal {
+    pub nal_type: NalType,
+    pub frame_buffer: Bytes,
+    pub frame_index: u64,
+}
+
+pub struct NalParser<F> where F : Fn(Nal) {
     enable_fec: bool,
     codec: AlvrCodec,
     push_nal: F,
     queue: FecQueue,
 }
 
-impl<F> NalParser<F> where F : Fn(Bytes, u64) {
+impl<F> NalParser<F> where F : Fn(Nal) {
     pub fn new(
         enable_fec: bool,
         codec: AlvrCodec,
@@ -122,8 +139,11 @@ impl<F> NalParser<F> where F : Fn(Bytes, u64) {
     }
 
     fn push(&self, frame_buffer: Bytes, frame_index: u64) {
+        let nal_type = self.detect_nal_type(&frame_buffer);
+
         if frame_buffer.len() > 8 {
-            info!("push_nal len={} index={} buf=[{} {} {} {} .. {} {} {} {}]",
+            info!("push_nal {:?} len={} index={} buf=[{} {} {} {} .. {} {} {} {}]",
+                  nal_type,
                   frame_buffer.len(),
                   frame_index,
                   frame_buffer[0], frame_buffer[1], frame_buffer[2], frame_buffer[3],
@@ -133,14 +153,15 @@ impl<F> NalParser<F> where F : Fn(Bytes, u64) {
                   frame_buffer[frame_buffer.len() - 1],
             );
         } else {
-            info!("push_nal len={} index={} buf={:?}",
+            info!("push_nal {:?} len={} index={} buf={:?}",
+                  nal_type,
                   frame_buffer.len(),
                   frame_index,
                   frame_buffer
             );
         }
 
-        (self.push_nal)(frame_buffer, frame_index);
+        (self.push_nal)(Nal { nal_type, frame_buffer, frame_index });
 
         // let mut nal = match self.activity.obtain_nal(&self.vm, frame_buffer.len() as i32) {
         //     Ok(Some(nal)) => nal,
@@ -158,5 +179,26 @@ impl<F> NalParser<F> where F : Fn(Bytes, u64) {
         // nal.set_frame_buffer(&self.vm, frame_buffer);
         //
         // self.activity.push_nal(&self.vm, nal);
+    }
+
+    fn detect_nal_type(&self, frame_buffer: &Bytes) -> NalType {
+        let nal_type = match self.codec {
+            AlvrCodec::H264 => frame_buffer[4] & 0x1F,
+            AlvrCodec::H265 => (frame_buffer[4] >> 1) & 0x3F,
+            AlvrCodec::Unknown => panic!("Unknown codec")
+        };
+
+        if (self.codec == AlvrCodec::H264 && nal_type == NAL_TYPE_SPS) ||
+            (self.codec == AlvrCodec::H265 && nal_type == H265_NAL_TYPE_VPS) {
+            // (VPS + )SPS + PPS
+            NalType::Sps
+        } else if (self.codec == AlvrCodec::H264 && nal_type == NAL_TYPE_IDR) ||
+            (self.codec == AlvrCodec::H265 && nal_type == H265_NAL_TYPE_IDR_W_RADL) {
+            // IDR-Frame
+            NalType::Idr
+        } else {
+            // PFrame
+            NalType::P
+        }
     }
 }

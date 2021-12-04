@@ -9,15 +9,23 @@ class InputBuffer(
     private val index: Int,
     private val codec: MediaCodec
 ) {
+    init {
+        if (!buffer.isDirect) {
+            throw RuntimeException("InputBuffer must be direct.")
+        }
+    }
+
+    @Suppress("unused") // publish to native code
     fun queueConfig() {
         val presentationTimeUs: Long = 0
         val flags: Int = MediaCodec.BUFFER_FLAG_CODEC_CONFIG
         codec.queueInputBuffer(index, 0, buffer.position(), presentationTimeUs, flags)
     }
 
+    @Suppress("unused") // publish to native code
     fun queue() {
         val presentationTimeUs: Long = System.nanoTime() / 1000
-        val flags: Int = 0
+        val flags = 0
         codec.queueInputBuffer(index, 0, buffer.position(), presentationTimeUs, flags)
     }
 }
