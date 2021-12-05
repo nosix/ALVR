@@ -10,11 +10,13 @@ use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use std::{
     collections::VecDeque,
-    sync::Arc,
-    sync::mpsc as smpsc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc as smpsc,
+    },
 };
 use tokio::task;
-use jni::descriptors::Desc;
 
 static INPUT_BUFFER_SENDER: Lazy<Mutex<Option<smpsc::Sender<InputBuffer>>>> =
     Lazy::new(|| Mutex::new(None));
@@ -25,7 +27,13 @@ static NAL_SENDER: Lazy<Mutex<Option<smpsc::SyncSender<Nal>>>> =
 static WAITING_INPUT_BUFFER: Lazy<Mutex<VecDeque<InputBuffer>>> =
     Lazy::new(|| Mutex::new(VecDeque::new()));
 
+static IDR_PARSED: AtomicBool = AtomicBool::new(false);
+
 const QUEUE_LIMIT: usize = 128;
+
+pub fn is_idr_parsed() -> bool {
+    IDR_PARSED.load(Ordering::Relaxed)
+}
 
 pub fn push_input_buffer(buffer: InputBuffer) -> StrResult {
     if let Some(input_buffer_sender) = INPUT_BUFFER_SENDER.lock().as_ref() {
@@ -67,6 +75,9 @@ pub fn buffer_coordination_loop(vm: Arc<JavaVM>) -> task::JoinHandle<StrResult> 
             if nal.nal_type == NalType::Sps {
                 input_buffer.queue_config(&env, nal)?;
             } else {
+                if nal.nal_type == NalType::Idr {
+                    IDR_PARSED.store(true, Ordering::Relaxed);
+                }
                 input_buffer.queue(&env, nal)?;
             }
         }

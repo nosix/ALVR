@@ -214,7 +214,7 @@ async fn connection_pipeline(
     let stream_socket_builder =
         StreamSocketBuilder::listen_for_server(
             stream_port,
-            settings.connection.stream_protocol
+            settings.connection.stream_protocol,
         ).await?;
 
     if let Err(e) = control_sender.send(&ClientControlPacket::StreamReady).await {
@@ -401,24 +401,24 @@ async fn legacy_receive_loop(
 
     let mut handler = StreamHandler::new(enable_fec, codec.into(), push_nal);
 
-    // let mut idr_request_deadline = None;
+    let mut idr_request_deadline = None;
 
     while let mut packet = socket_receiver.recv().await? {
         let data = packet.buffer;
 
         // Send again IDR packet every 2s in case it is missed
         // (due to dropped burst of packets at the start of the stream or otherwise).
-        //     if !crate::IDR_PARSED.load(Ordering::Relaxed) {
-        //         if let Some(deadline) = idr_request_deadline {
-        //             if deadline < Instant::now() {
-        //                 crate::IDR_REQUEST_NOTIFIER.notify_waiters();
-        //                 idr_request_deadline = None;
-        //             }
-        //         } else {
-        //             idr_request_deadline = Some(Instant::now() + Duration::from_secs(2));
-        //         }
-        //     }
-        //
+        if !buffer_queue::is_idr_parsed() {
+            if let Some(deadline) = idr_request_deadline {
+                if deadline < Instant::now() {
+                    IDR_REQUEST_NOTIFIER.notify_waiters();
+                    idr_request_deadline = None;
+                }
+            } else {
+                idr_request_deadline = Some(Instant::now() + Duration::from_secs(2));
+            }
+        }
+
         //     crate::IS_CONNECTED.store(true, Ordering::Relaxed);
         //     if !DISABLE_UNSAFE {
         //         crate::legacyReceive(data.as_mut_ptr(), data.len() as _);
