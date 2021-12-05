@@ -25,7 +25,6 @@ use std::{
     future,
     net::{IpAddr, Ipv4Addr},
     sync::mpsc as smpsc,
-    sync::Arc,
     time::Duration,
 };
 use tokio::{
@@ -78,7 +77,6 @@ impl From<String> for ConnectionError {
 }
 
 pub fn connect(
-    vm: JavaVM,
     device: &'static Device,
     private_identity: PrivateIdentity,
 ) -> StrResult<Option<JoinHandle<()>>> {
@@ -90,7 +88,7 @@ pub fn connect(
     }
 
     let runtime = trace_err!(Runtime::new())?;
-    let handle = runtime.spawn(connection_lifecycle_loop(vm, device, private_identity));
+    let handle = runtime.spawn(connection_lifecycle_loop(device, private_identity));
     *maybe_runtime = Some(runtime);
 
     Ok(Some(handle))
@@ -104,14 +102,12 @@ pub fn disconnect() {
         return;
     }
 
+    buffer_queue::terminate_loop();
+
     // shutdown and wait for tasks to finish
     drop(maybe_runtime.take());
 
     info!("The connection has been disconnected.")
-}
-
-pub fn request_idr() {
-    IDR_REQUEST_NOTIFIER.notify_waiters();
 }
 
 fn notify_event(event: ConnectionEvent) {
@@ -119,17 +115,15 @@ fn notify_event(event: ConnectionEvent) {
 }
 
 async fn connection_lifecycle_loop(
-    vm: JavaVM,
     device: &'static Device,
     identity: PrivateIdentity,
 ) {
     notify_event(ConnectionEvent::Initial);
 
-    let vm = Arc::new(vm);
     loop {
         tokio::join!(
             async {
-                match connection_pipeline(Arc::clone(&vm), device, &identity).await {
+                match connection_pipeline(device, &identity).await {
                     Err(e) => {
                         notify_event(ConnectionEvent::Error(e));
                         time::sleep(RETRY_CONNECT_MIN_INTERVAL).await;
@@ -147,7 +141,6 @@ async fn connection_lifecycle_loop(
 }
 
 async fn connection_pipeline(
-    vm: Arc<JavaVM>,
     device: &'static Device,
     identity: &PrivateIdentity,
 ) -> Result<(), ConnectionError> {
@@ -299,18 +292,18 @@ async fn connection_pipeline(
             }
             Ok(())
         },
-        res = spawn_cancelable(game_audio_loop) => res,
-        res = spawn_cancelable(microphone_loop) => res,
-        res = spawn_cancelable(tracking_loop) => res,
-        res = spawn_cancelable(playspace_sync_loop) => res,
-        res = spawn_cancelable(legacy_send_loop) => res,
-        res = spawn_cancelable(legacy_receive_loop) => res,
-        res = buffer_queue::buffer_coordination_loop(vm) => trace_err!(res)?,
+        res = spawn_cancelable(game_audio_loop) => trace_err!(res),
+        res = spawn_cancelable(microphone_loop) => trace_err!(res),
+        res = spawn_cancelable(tracking_loop) => trace_err!(res),
+        res = spawn_cancelable(playspace_sync_loop) => trace_err!(res),
+        res = spawn_cancelable(legacy_send_loop) => trace_err!(res),
+        res = spawn_cancelable(legacy_receive_loop) => trace_err!(res),
+        res = buffer_queue::buffer_coordination_loop() => trace_err!(res)?,
 
         // keep these loops on the current task
-        res = keepalive_sender_loop => res,
-        res = control_send_loop => res,
-        res = control_loop => res,
+        res = keepalive_sender_loop => trace_err!(res),
+        res = control_send_loop => trace_err!(res),
+        res = control_loop => trace_err!(res),
     })?;
 
     Ok(())
@@ -611,7 +604,8 @@ mod tests {
         let identity =
             alvr_sockets::create_identity(Some("test.client.alvr".into())).unwrap();
         let runtime = tokio::runtime::Runtime::new().unwrap();
-        runtime.block_on(super::connect(&DEVICE, identity).unwrap().unwrap());
+        let future = super::connect(&DEVICE, identity).unwrap().unwrap();
+        runtime.block_on(future).unwrap();
     }
 
     #[test]

@@ -85,9 +85,11 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onStart(
 ) {
     catch_err!({
         let vm = trace_err!(env.get_java_vm())?;
+        buffer_queue::set_vm(vm);
+
         let identity = clone_identity(MAYBE_IDENTITY.lock().as_ref()
             .ok_or("Identity has not been initialized. Call initPreferences before onStart.")?);
-        trace_err!(connection::connect(vm, &DEVICE, identity))?;
+        trace_err!(connection::connect(&DEVICE, identity))?;
     });
 }
 

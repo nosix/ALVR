@@ -92,7 +92,7 @@ impl<F> NalParser<F> where F : Fn(Nal) {
                     return false;
                 }
             };
-            info!("Got frame={} {}, Codec={:?}", nal_type, end, self.codec);
+            debug!("nal_type={} end={} codec={:?}", nal_type, end, self.codec);
 
             self.push(frame_buffer.split_to(end), tracking_frame_index);
             self.push(frame_buffer, tracking_frame_index);

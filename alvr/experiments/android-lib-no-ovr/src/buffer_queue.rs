@@ -18,6 +18,9 @@ use std::{
 };
 use tokio::task;
 
+static JAVA_VM: Lazy<Mutex<Option<JavaVM>>> =
+    Lazy::new(|| Mutex::new(None));
+
 static INPUT_BUFFER_SENDER: Lazy<Mutex<Option<smpsc::Sender<InputBuffer>>>> =
     Lazy::new(|| Mutex::new(None));
 
@@ -30,6 +33,10 @@ static WAITING_INPUT_BUFFER: Lazy<Mutex<VecDeque<InputBuffer>>> =
 static IDR_PARSED: AtomicBool = AtomicBool::new(false);
 
 const QUEUE_LIMIT: usize = 128;
+
+pub fn set_vm(vm: JavaVM) {
+    *JAVA_VM.lock() = Some(vm);
+}
 
 pub fn is_idr_parsed() -> bool {
     IDR_PARSED.load(Ordering::Relaxed)
@@ -52,7 +59,7 @@ pub fn push_nal(nal: Nal) {
     });
 }
 
-pub fn buffer_coordination_loop(vm: Arc<JavaVM>) -> task::JoinHandle<StrResult> {
+pub fn buffer_coordination_loop() -> task::JoinHandle<StrResult> {
     let (input_buffer_sender, mut input_buffer_receiver) = smpsc::channel();
     let (nal_sender, mut nal_receiver) = smpsc::sync_channel(QUEUE_LIMIT);
     *INPUT_BUFFER_SENDER.lock() = Some(input_buffer_sender);
@@ -62,24 +69,59 @@ pub fn buffer_coordination_loop(vm: Arc<JavaVM>) -> task::JoinHandle<StrResult> 
     // many times per second. If using a future I'm forced to attach and detach the env continuously.
     // When the parent function exits or gets canceled, this loop will run to finish.
     task::spawn_blocking(move || -> StrResult {
-        let env = trace_err!(vm.attach_current_thread_permanently())?;
+        let maybe_vm = JAVA_VM.lock();
+        let maybe_env = if let Some(vm) = maybe_vm.as_ref() {
+            Some(trace_err!(vm.attach_current_thread_permanently())?)
+        } else {
+            None
+        };
 
         for waiting_buffer in WAITING_INPUT_BUFFER.lock().drain(..) {
             push_input_buffer(waiting_buffer)?;
         }
 
-        loop {
-            let input_buffer = trace_err!(input_buffer_receiver.recv())?;
-            let nal = trace_err!(nal_receiver.recv())?;
+        if let Some(env) = maybe_env {
+            loop {
+                let input_buffer = trace_err!(input_buffer_receiver.recv())?;
+                let nal = trace_err!(nal_receiver.recv())?;
 
-            if nal.nal_type == NalType::Sps {
-                input_buffer.queue_config(&env, nal)?;
-            } else {
-                if nal.nal_type == NalType::Idr {
-                    IDR_PARSED.store(true, Ordering::Relaxed);
+                if nal.nal_type == NalType::Sps {
+                    input_buffer.queue_config(&env, nal)?;
+                } else {
+                    if nal.nal_type == NalType::Idr {
+                        IDR_PARSED.store(true, Ordering::Relaxed);
+                    }
+                    input_buffer.queue(&env, nal)?;
                 }
-                input_buffer.queue(&env, nal)?;
+            }
+        } else {
+            warn!("JNIEnv has not been initialized. So, only the log is displayed.");
+            loop {
+                let nal = trace_err!(nal_receiver.recv())?;
+                if nal.nal_type == NalType::Sps {
+                    info!(
+                        "queue_config {:?} frame_len={} frame_index={}",
+                        nal.nal_type, nal.frame_buffer.len(), nal.frame_index
+                    );
+                } else {
+                    if nal.nal_type == NalType::Idr {
+                        IDR_PARSED.store(true, Ordering::Relaxed);
+                    }
+                    info!(
+                        "queue {:?} frame_len={} frame_index={}",
+                        nal.nal_type, nal.frame_buffer.len(), nal.frame_index
+                    );
+                }
             }
         }
     })
+}
+
+pub fn terminate_loop() {
+    *INPUT_BUFFER_SENDER.lock() = None;
+    *NAL_SENDER.lock() = None;
+    *JAVA_VM.lock() = None;
+    WAITING_INPUT_BUFFER.lock().clear();
+    IDR_PARSED.store(false, Ordering::Relaxed);
+    info!("terminate buffer_queue");
 }
