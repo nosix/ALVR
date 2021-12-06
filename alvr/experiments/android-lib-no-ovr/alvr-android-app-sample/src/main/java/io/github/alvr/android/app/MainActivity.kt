@@ -45,8 +45,8 @@ class MainActivity : AppCompatActivity() {
             onInputBufferAvailable = { inputBuffer ->
                 nativeApi.notifyAvailableInputBuffer(inputBuffer)
             },
-            onOutputBufferAvailable = { presentationTimeUs ->
-                nativeApi.notifyAvailableOutputBuffer(presentationTimeUs)
+            onOutputBufferAvailable = { frameIndex ->
+                nativeApi.notifyAvailableOutputBuffer(frameIndex)
             }
         )
     }

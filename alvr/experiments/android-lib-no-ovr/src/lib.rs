@@ -4,7 +4,6 @@ mod common;
 mod connection;
 mod device;
 mod fec;
-mod frame_map;
 mod jvm;
 mod latency_controller;
 mod legacy_packets;
@@ -131,9 +130,9 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_notifyAvailable
 pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_notifyAvailableOutputBuffer(
     _: JNIEnv,
     _: JObject,
-    presentation_time_us: i64
+    frame_index: i64
 ) {
-    buffer_queue::on_output_buffer_available(presentation_time_us);
+    buffer_queue::on_output_buffer_available(frame_index);
 }
 
 fn clone_identity(identity: &PrivateIdentity) -> PrivateIdentity {

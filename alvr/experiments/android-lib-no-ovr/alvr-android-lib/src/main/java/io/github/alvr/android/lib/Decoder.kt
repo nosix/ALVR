@@ -21,6 +21,7 @@ class Decoder(
     }
 
     private val mScope = CoroutineScope(dispatcher)
+    private val mFrameMap = FrameMap()
 
     private var mCodec: MediaCodec? = null
 
@@ -65,7 +66,8 @@ class Decoder(
             codec: MediaCodec, index: Int
         ) {
             val buffer: ByteBuffer = codec.getInputBuffer(index) ?: return
-            val wrapper = InputBuffer(buffer, index, codec)
+            // TODO recycle InputBuffer object
+            val wrapper = InputBuffer(buffer, index, codec, mFrameMap)
             this@Decoder.onInputBufferAvailable(wrapper)
         }
 
@@ -73,11 +75,16 @@ class Decoder(
             codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo
         ) {
             codec.releaseOutputBuffer(index, true)
-            this@Decoder.onOutputBufferAvailable(info.presentationTimeUs)
+            val frameIndex = mFrameMap.remove(info.presentationTimeUs)
+            if (frameIndex != 0L) {
+                this@Decoder.onOutputBufferAvailable(frameIndex)
+            } else {
+                Log.w(TAG, "The frameIndex corresponding to presentationTimeUs was not found.")
+            }
         }
 
         override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {
-            Log.i(TAG, "onOutputFormatChanged $format");
+            Log.i(TAG, "onOutputFormatChanged $format")
         }
 
         override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {
