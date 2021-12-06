@@ -6,12 +6,7 @@ import android.os.Bundle
 import android.util.Log
 import android.view.SurfaceHolder
 import android.view.SurfaceView
-import io.github.alvr.android.lib.AlvrPreferences.Companion.get
-import io.github.alvr.android.lib.AlvrPreferences.Companion.set
-import io.github.alvr.android.lib.ConnectionObserver
-import io.github.alvr.android.lib.Decoder
-import io.github.alvr.android.lib.NativeApi
-import io.github.alvr.android.lib.VideoFormat
+import io.github.alvr.android.lib.AlvrClient
 
 class MainActivity : AppCompatActivity() {
 
@@ -19,41 +14,14 @@ class MainActivity : AppCompatActivity() {
         private val TAG = MainActivity::class.simpleName
     }
 
-    lateinit var nativeApi: NativeApi
-    lateinit var decoder: Decoder
+    private val mAlvrClient = AlvrClient()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        val sharedPref = getPreferences(Context.MODE_PRIVATE)
-        val preferences = sharedPref.get()
-        Log.i(TAG, "load $preferences")
-
-        nativeApi = NativeApi()
-        if (nativeApi.initPreferences(preferences)) {
-            sharedPref.set(preferences)
-            Log.i(TAG, "save $preferences")
-        }
-        nativeApi.setConnectionObserver(ConnectionObserver { event ->
-            // TODO implement this
-            Log.i("Observe", event.toString())
-        })
-        nativeApi.onCreate()
-
-        decoder = Decoder(
-            onInputBufferAvailable = { inputBuffer ->
-                nativeApi.notifyAvailableInputBuffer(inputBuffer)
-            },
-            onOutputBufferAvailable = { frameIndex ->
-                nativeApi.notifyAvailableOutputBuffer(frameIndex)
-            }
-        )
-    }
-
-    override fun onStart() {
-        super.onStart()
-        nativeApi.onStart()
+        mAlvrClient.attachPreference(getPreferences(Context.MODE_PRIVATE))
+        lifecycle.addObserver(mAlvrClient)
     }
 
     override fun onResume() {
@@ -63,7 +31,7 @@ class MainActivity : AppCompatActivity() {
             override fun surfaceCreated(holder: SurfaceHolder) {
                 val rect = holder.surfaceFrame
                 Log.d(TAG, "surfaceCreated $rect")
-                decoder.start(VideoFormat.H264, true, holder.surface)
+                mAlvrClient.attachSurface(holder.surface)
             }
 
             override fun surfaceChanged(
@@ -78,13 +46,8 @@ class MainActivity : AppCompatActivity() {
 
             override fun surfaceDestroyed(holder: SurfaceHolder) {
                 Log.d(TAG, "surfaceDestroyed")
-                decoder.stop()
+                mAlvrClient.detachSurface()
             }
         })
-    }
-
-    override fun onStop() {
-        super.onStop()
-        nativeApi.onStop()
     }
 }
