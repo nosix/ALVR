@@ -4,7 +4,7 @@ use crate::{
     legacy_packets::VideoFrameHeader,
 };
 use alvr_common::prelude::*;
-use bytes::{Bytes, Buf};
+use bytes::Bytes;
 
 #[derive(Debug, PartialEq)]
 pub enum NalType {
@@ -15,7 +15,7 @@ pub enum NalType {
 
 const NAL_TYPE_SPS: u8 = 7;
 const NAL_TYPE_IDR: u8 = 5;
-const NAL_TYPE_P: u8 = 1;
+const _NAL_TYPE_P: u8 = 1;
 
 const H265_NAL_TYPE_IDR_W_RADL: u8 = 19;
 const H265_NAL_TYPE_VPS:u8 = 32;
@@ -69,19 +69,9 @@ impl<F> NalParser<F> where F : Fn(Nal) {
             frame_buffer
         };
 
-        let mut buffer = frame_buffer.clone();
-        buffer.advance(4);
+        let nal_type = self.detect_nal_type(&frame_buffer);
 
-        // TODO use detect_nal_type
-        let nal_type = if self.codec == AlvrCodec::H264 {
-            buffer.get_u8() & 0x1F
-        } else {
-            buffer.get_u8() >> 1 & 0x3F
-        };
-
-        if (self.codec == AlvrCodec::H264 && nal_type == NAL_TYPE_SPS) ||
-            (self.codec == AlvrCodec::H265 && nal_type == H265_NAL_TYPE_VPS)
-        {
+        if nal_type == NalType::Sps {
             // This frame contains (VPS + )SPS + PPS + IDR on NVENC H.264 (H.265) stream.
             // (VPS + )SPS + PPS has short size (8bytes + 28bytes in some environment),
             // so we can assume SPS + PPS is contained in first fragment.
@@ -93,7 +83,7 @@ impl<F> NalParser<F> where F : Fn(Nal) {
                     return false;
                 }
             };
-            debug!("nal_type={} end={} codec={:?}", nal_type, end, self.codec);
+            debug!("nal_type={:?} end={} codec={:?}", nal_type, end, self.codec);
 
             self.push(frame_buffer.split_to(end), tracking_frame_index);
             self.push(frame_buffer, tracking_frame_index);
@@ -163,23 +153,6 @@ impl<F> NalParser<F> where F : Fn(Nal) {
         }
 
         (self.push_nal)(Nal { nal_type, frame_buffer, frame_index });
-
-        // let mut nal = match self.activity.obtain_nal(&self.vm, frame_buffer.len() as i32) {
-        //     Ok(Some(nal)) => nal,
-        //     Ok(None) => {
-        //         error!("NAL queue is full.");
-        //         return;
-        //     }
-        //     Err(message) => {
-        //         error!("{}", message);
-        //         return;
-        //     }
-        // };
-        //
-        // nal.set_frame_index(&self.vm, frame_index as i64);
-        // nal.set_frame_buffer(&self.vm, frame_buffer);
-        //
-        // self.activity.push_nal(&self.vm, nal);
     }
 
     fn detect_nal_type(&self, frame_buffer: &Bytes) -> NalType {
