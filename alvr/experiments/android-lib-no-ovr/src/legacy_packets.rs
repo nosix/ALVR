@@ -43,7 +43,9 @@ impl From<AlvrPacketType> for u32 {
     }
 }
 
-#[derive(Debug, PartialEq)]
+// TODO move to other mod
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(tag = "type")]
 pub enum AlvrCodec {
     H264,
     H265,

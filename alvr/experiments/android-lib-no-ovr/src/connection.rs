@@ -19,6 +19,7 @@ use futures::future::BoxFuture;
 use jni::JavaVM;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
+use serde::{self, Serialize};
 use serde_json as json;
 use settings_schema::Switch;
 use std::{
@@ -50,30 +51,52 @@ const TRACKING_INTERVAL: f32 = 1. / 360.;
 
 static MAYBE_RUNTIME: Lazy<Mutex<Option<Runtime>>> = Lazy::new(|| Mutex::new(None));
 static MAYBE_LEGACY_SENDER: Lazy<Mutex<Option<tmpsc::UnboundedSender<Vec<u8>>>>> = Lazy::new(|| Mutex::new(None));
+static MAYBE_OBSERVER: Lazy<Mutex<Option<Box<dyn ConnectionObserver>>>> = Lazy::new(|| Mutex::new(None));
 static IDR_REQUEST_NOTIFIER: Lazy<Notify> = Lazy::new(|| Notify::new());
 
-#[derive(Debug)]
-enum ConnectionEvent {
-    Initial,
-    StreamStart,
-    ServerRestart,
-    Error(ConnectionError),
+pub trait ConnectionObserver: Send {
+    fn on_event_occurred(&self, event: ConnectionEvent) -> StrResult;
 }
 
-#[derive(Debug, Clone)]
-enum ConnectionError {
+#[derive(Debug, Serialize)]
+#[serde(tag = "type")]
+pub enum ConnectionEvent {
+    Initial,
+    ServerFound { ipaddr: IpAddr },
+    Connected { settings: ConnectionSettings },
+    StreamStart,
+    ServerRestart,
+    Error { error: ConnectionError },
+}
+
+#[derive(Debug, Serialize)]
+pub struct ConnectionSettings {
+    fps: f32,
+    codec: AlvrCodec,
+    realtime: bool,
+    dark_mode: bool,
+    dashboard_url: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(tag = "type")]
+pub enum ConnectionError {
     NetworkUnreachable,
     ClientUntrusted,
     IncompatibleVersions,
     TimeoutSetUpStream,
-    ServerDisconnected(String),
-    SystemError(String),
+    ServerDisconnected { cause: String },
+    SystemError { cause: String },
 }
 
 impl From<String> for ConnectionError {
-    fn from(e: String) -> ConnectionError {
-        ConnectionError::SystemError(e)
+    fn from(cause: String) -> ConnectionError {
+        ConnectionError::SystemError { cause }
     }
+}
+
+pub fn set_observer(observer: Box<dyn ConnectionObserver>) {
+    *MAYBE_OBSERVER.lock() = Some(observer);
 }
 
 pub fn connect(
@@ -112,6 +135,9 @@ pub fn disconnect() {
 
 fn notify_event(event: ConnectionEvent) {
     info!("{:?}", event);
+    MAYBE_OBSERVER.lock().as_ref().map(
+        |observer| observer.on_event_occurred(event)
+    );
 }
 
 async fn connection_lifecycle_loop(
@@ -124,8 +150,8 @@ async fn connection_lifecycle_loop(
         tokio::join!(
             async {
                 match connection_pipeline(device, &identity).await {
-                    Err(e) => {
-                        notify_event(ConnectionEvent::Error(e));
+                    Err(error) => {
+                        notify_event(ConnectionEvent::Error { error });
                         time::sleep(RETRY_CONNECT_MIN_INTERVAL).await;
                         notify_event(ConnectionEvent::Initial);
                     },
@@ -163,7 +189,7 @@ async fn connection_pipeline(
         },
     };
 
-    info!("Found server at {:?}", server_ip);
+    notify_event(ConnectionEvent::ServerFound { ipaddr: server_ip });
 
     let headset_info = HeadsetInfoPacket {
         recommended_eye_width: device.get_recommended_eye_width(),
@@ -188,10 +214,14 @@ async fn connection_pipeline(
             return Ok(());
         }
         Ok(_) => {
-            return Err(ConnectionError::SystemError("Unexpected packet".into()));
+            return Err(ConnectionError::SystemError {
+                cause: "Unexpected packet".into()
+            });
         }
         Err(e) => {
-            return Err(ConnectionError::ServerDisconnected(format!("{} {}", trace_str!(), e)));
+            return Err(ConnectionError::ServerDisconnected {
+                cause: format!("{} {}", trace_str!(), e)
+            });
         }
     }
 
@@ -211,7 +241,9 @@ async fn connection_pipeline(
         ).await?;
 
     if let Err(e) = control_sender.send(&ClientControlPacket::StreamReady).await {
-        return Err(ConnectionError::ServerDisconnected(format!("{} {}", trace_str!(), e)));
+        return Err(ConnectionError::ServerDisconnected {
+            cause: format!("{} {}", trace_str!(), e)
+        });
     }
 
     let mut stream_socket = tokio::select! {
@@ -221,22 +253,20 @@ async fn connection_pipeline(
         }
     };
 
-    info!("Connected to server.");
+    notify_event(ConnectionEvent::Connected {
+        settings: ConnectionSettings {
+            fps: config_packet.fps,
+            codec: settings.video.codec.into(),
+            realtime: settings.video.client_request_realtime_decoder,
+            dark_mode: settings.extra.client_dark_mode,
+            dashboard_url: config_packet.dashboard_url,
+        }
+    });
 
     // let is_connected = Arc::new(AtomicBool::new(true));
     // let _stream_guard = StreamCloseGuard {
     //     is_connected: Arc::clone(&is_connected),
     // };
-
-    // activity.set_dark_mode(&java_vm, settings.extra.client_dark_mode)?;
-
-    // activity.on_server_connected(
-    //     &java_vm,
-    //     config_packet.fps.into(),
-    //     (matches!(settings.video.codec, CodecType::HEVC) as i32).into(),
-    //     settings.video.client_request_realtime_decoder.into(),
-    //     &config_packet.dashboard_url
-    // )?;
 
     let tracking_clientside_prediction = match &settings.headset.controllers {
         Switch::Enabled(controllers) => controllers.clientside_prediction,
@@ -288,7 +318,9 @@ async fn connection_pipeline(
     (tokio::select! {
         res = spawn_cancelable(stream_socket.receive_loop()) => {
             if let Err(e) = res {
-                return Err(ConnectionError::ServerDisconnected(format!("{}\n{}", e, trace_str!())));
+                return Err(ConnectionError::ServerDisconnected {
+                    cause: format!("{}\n{}", e, trace_str!())
+                });
             }
             Ok(())
         },
@@ -381,19 +413,8 @@ async fn legacy_receive_loop(
     codec: CodecType,
     enable_fec: bool,
 ) -> StrResult {
-    // let java_vm = Arc::clone(&java_vm);
-    // let activity = Arc::clone(&activity);
-    // let nal_class_ref = Arc::clone(&nal_class_ref);
-
-    // let env = trace_err!(java_vm.attach_current_thread())?;
-    // let env_ptr = env.get_native_interface() as _;
-    // let activity_obj = activity.as_obj();
-    // let nal_class: JClass = nal_class_ref.as_obj().into();
-
     let push_nal = buffer_queue::push_nal;
-
     let mut handler = StreamHandler::new(enable_fec, codec.into(), push_nal);
-
     let mut idr_request_deadline = None;
 
     while let mut packet = socket_receiver.recv().await? {
@@ -412,10 +433,8 @@ async fn legacy_receive_loop(
             }
         }
 
-        //     crate::IS_CONNECTED.store(true, Ordering::Relaxed);
-        //     if !DISABLE_UNSAFE {
-        //         crate::legacyReceive(data.as_mut_ptr(), data.len() as _);
-        //     }
+        // crate::IS_CONNECTED.store(true, Ordering::Relaxed);
+
         handler.legacy_receive(data.freeze());
     }
 

@@ -8,6 +8,7 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import io.github.alvr.android.lib.AlvrPreferences.Companion.get
 import io.github.alvr.android.lib.AlvrPreferences.Companion.set
+import io.github.alvr.android.lib.ConnectionObserver
 import io.github.alvr.android.lib.Decoder
 import io.github.alvr.android.lib.NativeApi
 import io.github.alvr.android.lib.VideoFormat
@@ -34,6 +35,10 @@ class MainActivity : AppCompatActivity() {
             sharedPref.set(preferences)
             Log.i(TAG, "save $preferences")
         }
+        nativeApi.setConnectionObserver(ConnectionObserver { event ->
+            // TODO implement this
+            Log.i("Observe", event.toString())
+        })
         nativeApi.onCreate()
 
         decoder = Decoder { inputBuffer ->

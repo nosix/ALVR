@@ -13,7 +13,7 @@ mod util;
 
 use crate::{
     device::Device,
-    jvm::Preferences,
+    jvm::{JConnectionObserver, Preferences},
 };
 use alvr_common::prelude::*;
 use alvr_sockets::PrivateIdentity;
@@ -68,6 +68,18 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_initPreferences
 
         is_changed
     }, bool).unwrap_or(false).into()
+}
+
+#[no_mangle]
+pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_setConnectionObserver(
+    env: JNIEnv,
+    _: JObject,
+    observer: JObject,
+) {
+    catch_err!({
+        let observer = JConnectionObserver::new(&env, observer)?;
+        connection::set_observer(Box::new(observer));
+    });
 }
 
 #[no_mangle]

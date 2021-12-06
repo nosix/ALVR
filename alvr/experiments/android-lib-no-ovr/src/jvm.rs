@@ -1,10 +1,14 @@
-use crate::nal::Nal;
+use crate::{
+    connection::{ConnectionError, ConnectionEvent, ConnectionObserver},
+    nal::Nal,
+};
 use alvr_common::prelude::*;
 use bytes::Bytes;
 use jni::{
     JavaVM, JNIEnv,
     objects::{GlobalRef, JObject, JString, JValue},
 };
+use serde_json;
 
 const STRING_TYPE: &'static str = "Ljava/lang/String;";
 
@@ -111,5 +115,32 @@ impl InputBuffer {
         } else {
             Err("Can't get the byte buffer.".into())
         }
+    }
+}
+
+pub struct JConnectionObserver {
+    vm: JavaVM,
+    object: GlobalRef,
+}
+
+impl JConnectionObserver {
+    pub fn new(env: &JNIEnv, object: JObject) -> StrResult<JConnectionObserver> {
+        Ok(JConnectionObserver {
+            vm: trace_err!(env.get_java_vm())?,
+            object: trace_err!(env.new_global_ref(object))?,
+        })
+    }
+}
+
+impl ConnectionObserver for JConnectionObserver {
+    fn on_event_occurred(&self, event: ConnectionEvent) -> StrResult {
+        let env = trace_err!(self.vm.attach_current_thread_permanently())?;
+        let json_data = trace_err!(serde_json::to_string(&event))?;
+        trace_err!(env.call_method(
+            &self.object, "onEventOccurred", "(Ljava/lang/String;)V", &[
+                trace_err!(env.new_string(json_data))?.into()
+            ]
+        ))?;
+        Ok(())
     }
 }

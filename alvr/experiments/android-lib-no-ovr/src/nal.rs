@@ -72,6 +72,8 @@ impl<F> NalParser<F> where F : Fn(Nal) {
 
         let mut buffer = frame_buffer.clone();
         buffer.advance(4);
+
+        // TODO use detect_nal_type
         let nal_type = if self.codec == AlvrCodec::H264 {
             buffer.get_u8() & 0x1F
         } else {
