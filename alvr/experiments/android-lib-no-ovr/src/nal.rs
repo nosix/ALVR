@@ -5,8 +5,6 @@ use crate::{
 };
 use alvr_common::prelude::*;
 use bytes::{Bytes, Buf};
-use jni::JavaVM;
-use std::sync::Arc;
 
 #[derive(Debug, PartialEq)]
 pub enum NalType {
@@ -50,7 +48,7 @@ impl<F> NalParser<F> where F : Fn(Nal) {
     }
 
     pub fn process_packet(
-        &mut self, frame_header: VideoFrameHeader, mut frame_buffer: Bytes, fec_failure: &mut bool,
+        &mut self, frame_header: VideoFrameHeader, frame_buffer: Bytes, fec_failure: &mut bool,
     ) -> bool {
         let tracking_frame_index = frame_header.tracking_frame_index;
 

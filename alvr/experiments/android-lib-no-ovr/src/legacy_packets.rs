@@ -1,8 +1,6 @@
-use alvr_session::CodecType;
 use bincode;
-use bytes::{Bytes, Buf};
+use bytes::Bytes;
 use serde::{Serialize, Deserialize};
-use std::mem;
 
 /// Maximum UDP packet size (payload size in bytes)
 pub const ALVR_MAX_PACKET_SIZE: usize = 1400;

@@ -20,7 +20,7 @@ use alvr_common::prelude::*;
 use alvr_sockets::PrivateIdentity;
 use jni::{
     JNIEnv, objects::JObject,
-    sys::{jboolean, jstring},
+    sys::jboolean,
 };
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;

@@ -5,7 +5,6 @@ use crate::{
     device::Device,
     legacy_packets::*,
     legacy_stream::StreamHandler,
-    nal::Nal,
     util,
 };
 use alvr_common::{
@@ -15,18 +14,14 @@ use alvr_common::{
 use alvr_session::*;
 use alvr_sockets::*;
 use bincode;
-use bytes::{Bytes, BytesMut};
 use futures::future::BoxFuture;
-use jni::JavaVM;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
-use serde::{self, Serialize};
+use serde;
 use serde_json as json;
 use settings_schema::Switch;
 use std::{
-    future,
     net::{IpAddr, Ipv4Addr},
-    sync::mpsc as smpsc,
     time::Duration,
 };
 use tokio::{
@@ -34,7 +29,7 @@ use tokio::{
     runtime::Runtime,
     sync::mpsc as tmpsc,
     sync::Notify,
-    task::{self, JoinHandle},
+    task::JoinHandle,
     time::{self, Instant},
 };
 
@@ -328,7 +323,7 @@ async fn announce_client_loop(
         handshake_socket
             .send_to(&client_handshake_packet, (Ipv4Addr::BROADCAST, CONTROL_PORT))
             .await
-            .map_err(|e| ConnectionError::NetworkUnreachable)?;
+            .map_err(|_| ConnectionError::NetworkUnreachable)?;
 
         tokio::select! {
             res = receive_response_loop(&mut handshake_socket) => break res,
@@ -381,7 +376,7 @@ async fn legacy_receive_loop(
     let mut handler = StreamHandler::new(enable_fec, codec.into(), push_nal);
     let mut idr_request_deadline = None;
 
-    while let mut packet = socket_receiver.recv().await? {
+    while let packet = socket_receiver.recv().await? {
         let data = packet.buffer;
 
         // Send again IDR packet every 2s in case it is missed

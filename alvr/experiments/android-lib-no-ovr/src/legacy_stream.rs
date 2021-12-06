@@ -7,7 +7,7 @@ use crate::{
 };
 use alvr_common::prelude::*;
 use bytes::{Bytes, Buf};
-use std::{sync::Arc, mem};
+use std::mem;
 
 pub struct StreamHandler<F> where F : Fn(Nal) {
     time_diff: i64,

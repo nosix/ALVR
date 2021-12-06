@@ -1,6 +1,6 @@
 use crate::legacy_packets::{VideoFrameHeader, ALVR_MAX_PACKET_SIZE};
 use alvr_common::prelude::*;
-use bytes::{Bytes, Buf};
+use bytes::Bytes;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::{mem, ptr};
 

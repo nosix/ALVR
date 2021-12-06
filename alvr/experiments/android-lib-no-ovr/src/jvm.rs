@@ -1,10 +1,9 @@
 use crate::{
-    common::{ConnectionError, ConnectionEvent},
+    common::ConnectionEvent,
     connection::ConnectionObserver,
     nal::Nal,
 };
 use alvr_common::prelude::*;
-use bytes::Bytes;
 use jni::{
     JavaVM, JNIEnv,
     objects::{GlobalRef, JObject, JString, JValue},
