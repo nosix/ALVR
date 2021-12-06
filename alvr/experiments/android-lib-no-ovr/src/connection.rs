@@ -1,6 +1,7 @@
 use crate::{
     audio,
     buffer_queue,
+    common::{ConnectionError, ConnectionEvent, ConnectionSettings},
     device::Device,
     legacy_packets::*,
     legacy_stream::StreamHandler,
@@ -56,43 +57,6 @@ static IDR_REQUEST_NOTIFIER: Lazy<Notify> = Lazy::new(|| Notify::new());
 
 pub trait ConnectionObserver: Send {
     fn on_event_occurred(&self, event: ConnectionEvent) -> StrResult;
-}
-
-#[derive(Debug, Serialize)]
-#[serde(tag = "type")]
-pub enum ConnectionEvent {
-    Initial,
-    ServerFound { ipaddr: IpAddr },
-    Connected { settings: ConnectionSettings },
-    StreamStart,
-    ServerRestart,
-    Error { error: ConnectionError },
-}
-
-#[derive(Debug, Serialize)]
-pub struct ConnectionSettings {
-    fps: f32,
-    codec: AlvrCodec,
-    realtime: bool,
-    dark_mode: bool,
-    dashboard_url: String,
-}
-
-#[derive(Debug, Serialize, Clone)]
-#[serde(tag = "type")]
-pub enum ConnectionError {
-    NetworkUnreachable,
-    ClientUntrusted,
-    IncompatibleVersions,
-    TimeoutSetUpStream,
-    ServerDisconnected { cause: String },
-    SystemError { cause: String },
-}
-
-impl From<String> for ConnectionError {
-    fn from(cause: String) -> ConnectionError {
-        ConnectionError::SystemError { cause }
-    }
 }
 
 pub fn set_observer(observer: Box<dyn ConnectionObserver>) {

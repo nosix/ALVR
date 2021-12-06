@@ -1,5 +1,6 @@
 use crate::{
-    connection::{ConnectionError, ConnectionEvent, ConnectionObserver},
+    common::{ConnectionError, ConnectionEvent},
+    connection::ConnectionObserver,
     nal::Nal,
 };
 use alvr_common::prelude::*;

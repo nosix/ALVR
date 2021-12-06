@@ -1,6 +1,7 @@
 use crate::{
+    common::AlvrCodec,
     fec::FecQueue,
-    legacy_packets::{AlvrCodec, VideoFrameHeader},
+    legacy_packets::VideoFrameHeader,
 };
 use alvr_common::prelude::*;
 use bytes::{Bytes, Buf};

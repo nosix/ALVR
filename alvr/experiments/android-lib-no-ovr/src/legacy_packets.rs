@@ -43,34 +43,6 @@ impl From<AlvrPacketType> for u32 {
     }
 }
 
-// TODO move to other mod
-#[derive(Debug, Serialize, PartialEq)]
-#[serde(tag = "type")]
-pub enum AlvrCodec {
-    H264,
-    H265,
-    Unknown,
-}
-
-impl From<u32> for AlvrCodec {
-    fn from(n: u32) -> AlvrCodec {
-        match n {
-            0 => AlvrCodec::H264,
-            1 => AlvrCodec::H265,
-            _ => AlvrCodec::Unknown
-        }
-    }
-}
-
-impl From<CodecType> for AlvrCodec {
-    fn from(t: CodecType) -> AlvrCodec {
-        match t {
-            CodecType::H264 => AlvrCodec::H264,
-            CodecType::HEVC => AlvrCodec::H265,
-        }
-    }
-}
-
 #[derive(Debug, PartialEq)]
 pub enum AlvrLostFrameType {
     Video,

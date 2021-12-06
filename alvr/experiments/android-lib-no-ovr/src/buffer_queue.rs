@@ -1,17 +1,14 @@
 use crate::{
     jvm::InputBuffer,
-    legacy_packets::AlvrCodec,
     nal::{Nal, NalType},
 };
 use alvr_common::prelude::*;
-use bytes::Bytes;
 use jni::JavaVM;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use std::{
     collections::VecDeque,
     sync::{
-        Arc,
         atomic::{AtomicBool, Ordering},
         mpsc as smpsc,
     },
@@ -60,8 +57,8 @@ pub fn push_nal(nal: Nal) {
 }
 
 pub fn buffer_coordination_loop() -> task::JoinHandle<StrResult> {
-    let (input_buffer_sender, mut input_buffer_receiver) = smpsc::channel();
-    let (nal_sender, mut nal_receiver) = smpsc::sync_channel(QUEUE_LIMIT);
+    let (input_buffer_sender, input_buffer_receiver) = smpsc::channel();
+    let (nal_sender, nal_receiver) = smpsc::sync_channel(QUEUE_LIMIT);
     *INPUT_BUFFER_SENDER.lock() = Some(input_buffer_sender);
     *NAL_SENDER.lock() = Some(nal_sender);
 
