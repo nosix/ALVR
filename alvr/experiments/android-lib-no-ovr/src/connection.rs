@@ -17,7 +17,6 @@ use bincode;
 use futures::future::BoxFuture;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
-use serde;
 use serde_json as json;
 use settings_schema::Switch;
 use std::{
@@ -373,7 +372,7 @@ async fn legacy_receive_loop(
     enable_fec: bool,
 ) -> StrResult {
     let push_nal = buffer_queue::push_nal;
-    let mut handler = StreamHandler::new(enable_fec, codec.into(), push_nal);
+    let mut handler = StreamHandler::new(enable_fec, codec.into(), push_nal, legacy_send);
     let mut idr_request_deadline = None;
 
     while let packet = socket_receiver.recv().await? {

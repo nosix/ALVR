@@ -9,19 +9,21 @@ use alvr_common::prelude::*;
 use bytes::{Bytes, Buf};
 use std::mem;
 
-pub struct StreamHandler<F> where F : Fn(Nal) {
+pub struct StreamHandler<P,S> where P: Fn(Nal), S: Fn(Vec<u8>) {
     time_diff: i64,
     last_frame_index: u64,
     prev_video_sequence: u32,
-    nal_parser: NalParser<F>,
+    nal_parser: NalParser<P>,
+    legacy_send: S
 }
 
-impl<F> StreamHandler<F> where F : Fn(Nal) {
+impl<P,S> StreamHandler<P,S> where P: Fn(Nal), S: Fn(Vec<u8>) {
     pub fn new(
         enable_fec: bool,
         codec: AlvrCodec,
-        push_nal: F
-    ) -> StreamHandler<F> {
+        push_nal: P,
+        legacy_send: S,
+    ) -> StreamHandler<P,S> {
         latency_controller::INSTANCE.lock().reset();
         let nal_parser = NalParser::new(
             enable_fec,
@@ -33,6 +35,7 @@ impl<F> StreamHandler<F> where F : Fn(Nal) {
             last_frame_index: 0,
             prev_video_sequence: 0,
             nal_parser,
+            legacy_send,
         }
     }
 
@@ -84,7 +87,7 @@ impl<F> StreamHandler<F> where F : Fn(Nal) {
             }
             if fec_failure {
                 latency_controller.fec_failure();
-                Self::send_packet_error_report(AlvrLostFrameType::Video, 0, 0);
+                self.send_packet_error_report(AlvrLostFrameType::Video, 0, 0);
             }
             latency_controller.set_fec_failure_state(fec_failure);
         }
@@ -124,7 +127,7 @@ impl<F> StreamHandler<F> where F : Fn(Nal) {
                 self.time_diff =
                     time_sync.server_time as i64 + rtt as i64 / 2 - current as i64;
                 debug!("TimeSync: server - client = {} us RTT = {} us", self.time_diff, rtt);
-                Self::send_time_sync(time_sync, current);
+                self.send_time_sync(time_sync, current);
             }
             3 => {
                 let mut latency_controller = latency_controller::INSTANCE.lock();
@@ -149,7 +152,10 @@ impl<F> StreamHandler<F> where F : Fn(Nal) {
     }
 
     fn send_packet_error_report(
-        frame_type: AlvrLostFrameType, from_packet_counter: u32, to_packet_counter: u32,
+        &self,
+        frame_type: AlvrLostFrameType,
+        from_packet_counter: u32,
+        to_packet_counter: u32,
     ) {
         let packet_error_report = PacketErrorReport {
             lost_frame_type: frame_type.into(),
@@ -157,13 +163,17 @@ impl<F> StreamHandler<F> where F : Fn(Nal) {
             to_packet_counter,
             ..Default::default()
         };
-        // connection::legacy_send(packet_error_report.into());
+        (self.legacy_send)(packet_error_report.into());
     }
 
-    fn send_time_sync(mut time_sync: TimeSync, client_time: u64) {
+    fn send_time_sync(
+        &self,
+        mut time_sync: TimeSync,
+        client_time: u64
+    ) {
         time_sync.mode = 2;
         time_sync.client_time = client_time;
-        // connection::legacy_send(time_sync.into());
+        (self.legacy_send)(time_sync.into());
     }
 }
 
