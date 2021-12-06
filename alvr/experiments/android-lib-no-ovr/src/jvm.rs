@@ -85,15 +85,15 @@ impl InputBuffer {
         })
     }
 
-    pub fn queue_config(&self, env: &JNIEnv, nal: Nal) -> StrResult {
+    pub fn queue_config(&self, env: &JNIEnv, nal: Nal) -> StrResult<i64> {
         self.call_queue_method(&env, "queueConfig", nal)
     }
 
-    pub fn queue(&self, env: &JNIEnv, nal: Nal) -> StrResult {
+    pub fn queue(&self, env: &JNIEnv, nal: Nal) -> StrResult<i64> {
         self.call_queue_method(&env, "queue", nal)
     }
 
-    fn call_queue_method(&self, env: &JNIEnv, method_name: &str, nal: Nal) -> StrResult {
+    fn call_queue_method(&self, env: &JNIEnv, method_name: &str, nal: Nal) -> StrResult<i64> {
         info!(
             "{} {:?} frame_len={} frame_index={}",
             method_name, nal.nal_type, nal.frame_buffer.len(), nal.frame_index
@@ -108,10 +108,14 @@ impl InputBuffer {
                 byte_buffer, "position", "(I)Ljava/nio/Buffer;",
                 &[(nal.frame_buffer.len() as i32).into()]
             ))?;
-            trace_err!(env.call_method(
-                &self.object, method_name, "()V", &[]
+            let ret = trace_err!(env.call_method(
+                &self.object, method_name, "()J", &[]
             ))?;
-            Ok(())
+            if let JValue::Long(presentation_time_us) = ret {
+                Ok(presentation_time_us)
+            } else {
+                Err("Invalid return value.".into())
+            }
         } else {
             Err("Can't get the byte buffer.".into())
         }

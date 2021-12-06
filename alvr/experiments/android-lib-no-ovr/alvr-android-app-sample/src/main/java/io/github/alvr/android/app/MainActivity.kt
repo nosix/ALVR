@@ -41,9 +41,14 @@ class MainActivity : AppCompatActivity() {
         })
         nativeApi.onCreate()
 
-        decoder = Decoder { inputBuffer ->
-            nativeApi.pushAvailableInputBuffer(inputBuffer)
-        }
+        decoder = Decoder(
+            onInputBufferAvailable = { inputBuffer ->
+                nativeApi.notifyAvailableInputBuffer(inputBuffer)
+            },
+            onOutputBufferAvailable = { presentationTimeUs ->
+                nativeApi.notifyAvailableOutputBuffer(presentationTimeUs)
+            }
+        )
     }
 
     override fun onStart() {

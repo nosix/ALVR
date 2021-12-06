@@ -13,7 +13,8 @@ import java.nio.ByteBuffer
 
 class Decoder(
     dispatcher: CoroutineDispatcher = Dispatchers.Default,
-    private val onInputBufferAvailable: (InputBuffer) -> Unit
+    private val onInputBufferAvailable: (InputBuffer) -> Unit,
+    private val onOutputBufferAvailable: (Long) -> Unit
 ) {
     companion object {
         private val TAG = Decoder::class.simpleName
@@ -71,8 +72,8 @@ class Decoder(
         override fun onOutputBufferAvailable(
             codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo
         ) {
-            // TODO SurfaceTextureの準備ができていれば？
             codec.releaseOutputBuffer(index, true)
+            this@Decoder.onOutputBufferAvailable(info.presentationTimeUs)
         }
 
         override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {

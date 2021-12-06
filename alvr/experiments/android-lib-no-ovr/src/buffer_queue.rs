@@ -1,5 +1,7 @@
 use crate::{
+    frame_map::FrameMap,
     jvm::InputBuffer,
+    latency_controller,
     nal::{Nal, NalType},
 };
 use alvr_common::prelude::*;
@@ -26,6 +28,9 @@ static NAL_SENDER: Lazy<Mutex<Option<smpsc::SyncSender<Nal>>>> =
 
 static WAITING_INPUT_BUFFER: Lazy<Mutex<VecDeque<InputBuffer>>> =
     Lazy::new(|| Mutex::new(VecDeque::new()));
+
+static FRAME_MAP: Lazy<Mutex<FrameMap<4096>>> =
+    Lazy::new(|| Mutex::new(FrameMap::new()));
 
 static IDR_PARSED: AtomicBool = AtomicBool::new(false);
 
@@ -54,6 +59,12 @@ pub fn push_nal(nal: Nal) {
             warn!("{} {}", e, trace_str!());
         }
     });
+}
+
+pub fn on_output_buffer_available(presentation_time_us: i64) {
+    if let Some(frame_index) = FRAME_MAP.lock().remove(presentation_time_us) {
+        latency_controller::INSTANCE.lock().decoder_output(frame_index);
+    }
 }
 
 pub fn buffer_coordination_loop() -> task::JoinHandle<StrResult> {
@@ -88,7 +99,10 @@ pub fn buffer_coordination_loop() -> task::JoinHandle<StrResult> {
                     if nal.nal_type == NalType::Idr {
                         IDR_PARSED.store(true, Ordering::Relaxed);
                     }
-                    input_buffer.queue(&env, nal)?;
+                    let frame_index = nal.frame_index;
+                    latency_controller::INSTANCE.lock().decoder_input(frame_index);
+                    let presentation_time_us = input_buffer.queue(&env, nal)?;
+                    FRAME_MAP.lock().insert(presentation_time_us, frame_index);
                 }
             }
         } else {
@@ -104,6 +118,7 @@ pub fn buffer_coordination_loop() -> task::JoinHandle<StrResult> {
                     if nal.nal_type == NalType::Idr {
                         IDR_PARSED.store(true, Ordering::Relaxed);
                     }
+                    latency_controller::INSTANCE.lock().decoder_input(nal.frame_index);
                     info!(
                         "queue {:?} frame_len={} frame_index={}",
                         nal.nal_type, nal.frame_buffer.len(), nal.frame_index

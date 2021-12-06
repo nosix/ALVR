@@ -5,6 +5,7 @@ use crate::{
     device::Device,
     legacy_packets::*,
     legacy_stream::StreamHandler,
+    latency_controller,
     util,
 };
 use alvr_common::{
@@ -431,8 +432,7 @@ async fn tracking_loop() -> StrResult {
             // TODO controller
             ..Default::default()
         };
-        // let mut latency_controller = LATENCY_CONTROLLER.lock().tracking(frame_index);
-        // info!("legacy_send {:?}", &tracking_info); // FIXME too many output
+        latency_controller::INSTANCE.lock().tracking(frame_index);
         legacy_send(tracking_info.into());
 
         deadline += tracking_interval;

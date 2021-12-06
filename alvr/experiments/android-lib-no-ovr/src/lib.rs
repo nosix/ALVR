@@ -4,6 +4,7 @@ mod common;
 mod connection;
 mod device;
 mod fec;
+mod frame_map;
 mod jvm;
 mod latency_controller;
 mod legacy_packets;
@@ -115,7 +116,7 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onStop(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_pushAvailableInputBuffer(
+pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_notifyAvailableInputBuffer(
     env: JNIEnv,
     _: JObject,
     buffer: JObject
@@ -124,6 +125,15 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_pushAvailableIn
         let input_buffer = InputBuffer::new(env, buffer)?;
         buffer_queue::push_input_buffer(input_buffer)?;
     });
+}
+
+#[no_mangle]
+pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_notifyAvailableOutputBuffer(
+    _: JNIEnv,
+    _: JObject,
+    presentation_time_us: i64
+) {
+    buffer_queue::on_output_buffer_available(presentation_time_us);
 }
 
 fn clone_identity(identity: &PrivateIdentity) -> PrivateIdentity {
