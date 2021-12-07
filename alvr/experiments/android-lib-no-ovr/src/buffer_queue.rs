@@ -40,6 +40,10 @@ pub fn is_idr_parsed() -> bool {
     IDR_PARSED.load(Ordering::Relaxed)
 }
 
+pub fn reset_idr_parsed() {
+    IDR_PARSED.store(false, Ordering::Relaxed);
+}
+
 pub fn push_input_buffer(buffer: InputBuffer) -> StrResult {
     if let Some(input_buffer_sender) = INPUT_BUFFER_SENDER.lock().as_ref() {
         trace_err!(input_buffer_sender.send(buffer))?;

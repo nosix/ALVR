@@ -1,16 +1,21 @@
 use crate::{
     common::AlvrCodec,
-    fec::FecQueue,
+    fec::{FecQueue, ReconstructError},
     legacy_packets::VideoFrameHeader,
 };
 use alvr_common::prelude::*;
 use bytes::Bytes;
 
+pub enum ProcessError {
+    InvalidFrame,
+    ReconstructFailed(ReconstructError)
+}
+
 #[derive(Debug, PartialEq)]
 pub enum NalType {
     Sps,
     Idr,
-    P
+    P,
 }
 
 const NAL_TYPE_SPS: u8 = 7;
@@ -18,7 +23,7 @@ const NAL_TYPE_IDR: u8 = 5;
 const _NAL_TYPE_P: u8 = 1;
 
 const H265_NAL_TYPE_IDR_W_RADL: u8 = 19;
-const H265_NAL_TYPE_VPS:u8 = 32;
+const H265_NAL_TYPE_VPS: u8 = 32;
 
 pub struct Nal {
     pub nal_type: NalType,
@@ -26,18 +31,18 @@ pub struct Nal {
     pub frame_index: u64,
 }
 
-pub struct NalParser<F> where F : Fn(Nal) {
+pub struct NalParser<F> where F: Fn(Nal) {
     enable_fec: bool,
     codec: AlvrCodec,
     push_nal: F,
     queue: FecQueue,
 }
 
-impl<F> NalParser<F> where F : Fn(Nal) {
+impl<F> NalParser<F> where F: Fn(Nal) {
     pub fn new(
         enable_fec: bool,
         codec: AlvrCodec,
-        push_nal: F
+        push_nal: F,
     ) -> NalParser<F> {
         NalParser {
             enable_fec,
@@ -49,7 +54,7 @@ impl<F> NalParser<F> where F : Fn(Nal) {
 
     pub fn process_packet(
         &mut self, frame_header: VideoFrameHeader, frame_buffer: Bytes, fec_failure: &mut bool,
-    ) -> bool {
+    ) -> Result<(), ProcessError> {
         let tracking_frame_index = frame_header.tracking_frame_index;
 
         if self.enable_fec {
@@ -59,8 +64,8 @@ impl<F> NalParser<F> where F : Fn(Nal) {
             }
         }
 
-        if !self.queue.reconstruct() {
-            return false;
+        if let Err(e) = self.queue.reconstruct() {
+            return Err(ProcessError::ReconstructFailed(e));
         }
 
         let mut frame_buffer = if self.enable_fec {
@@ -80,7 +85,7 @@ impl<F> NalParser<F> where F : Fn(Nal) {
                 Err(_) => {
                     // Invalid frame.
                     error!("Got invalid frame. Too large SPS or PPS?");
-                    return false;
+                    return Err(ProcessError::InvalidFrame);
                 }
             };
             debug!("nal_type={:?} end={} codec={:?}", nal_type, end, self.codec);
@@ -93,7 +98,7 @@ impl<F> NalParser<F> where F : Fn(Nal) {
             self.push(frame_buffer, tracking_frame_index);
         }
 
-        true
+        Ok(())
     }
 
     fn find_vps_sps(&self, frame_buffer: Bytes) -> Result<usize, ()> {
@@ -134,21 +139,21 @@ impl<F> NalParser<F> where F : Fn(Nal) {
 
         if frame_buffer.len() > 8 {
             debug!("push_nal {:?} len={} index={} buf=[{} {} {} {} .. {} {} {} {}]",
-                  nal_type,
-                  frame_buffer.len(),
-                  frame_index,
-                  frame_buffer[0], frame_buffer[1], frame_buffer[2], frame_buffer[3],
-                  frame_buffer[frame_buffer.len() - 4],
-                  frame_buffer[frame_buffer.len() - 3],
-                  frame_buffer[frame_buffer.len() - 2],
-                  frame_buffer[frame_buffer.len() - 1],
+                   nal_type,
+                   frame_buffer.len(),
+                   frame_index,
+                   frame_buffer[0], frame_buffer[1], frame_buffer[2], frame_buffer[3],
+                   frame_buffer[frame_buffer.len() - 4],
+                   frame_buffer[frame_buffer.len() - 3],
+                   frame_buffer[frame_buffer.len() - 2],
+                   frame_buffer[frame_buffer.len() - 1],
             );
         } else {
             debug!("push_nal {:?} len={} index={} buf={:?}",
-                  nal_type,
-                  frame_buffer.len(),
-                  frame_index,
-                  frame_buffer
+                   nal_type,
+                   frame_buffer.len(),
+                   frame_index,
+                   frame_buffer
             );
         }
 

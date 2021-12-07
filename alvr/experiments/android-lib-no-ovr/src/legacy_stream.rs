@@ -1,8 +1,10 @@
 use crate::{
+    buffer_queue,
     common::AlvrCodec,
+    fec::ReconstructError,
     latency_controller,
     legacy_packets::*,
-    nal::{Nal, NalParser},
+    nal::{Nal, NalParser, ProcessError},
     util,
 };
 use alvr_common::prelude::*;
@@ -80,12 +82,17 @@ impl<P,S> StreamHandler<P,S> where P: Fn(Nal), S: Fn(Vec<u8>) {
             let mut latency_controller = latency_controller::INSTANCE.lock();
 
             let mut fec_failure = latency_controller.get_fec_failure_state();
-            let not_broken = self.nal_parser.process_packet(
-                video_frame_header, video_frame_buffer, &mut fec_failure);
-            if not_broken {
-                latency_controller.received_last(tracking_frame_index);
-            } else {
-                // TODO request IDR
+            let res = self.nal_parser.process_packet(
+                video_frame_header, video_frame_buffer, &mut fec_failure
+            );
+            match res {
+                Ok(_) => {
+                    latency_controller.received_last(tracking_frame_index);
+                },
+                Err(ProcessError::ReconstructFailed(ReconstructError::ReconstructFailed)) => {
+                    buffer_queue::reset_idr_parsed();
+                }
+                _ => ()
             }
             if fec_failure {
                 latency_controller.fec_failure();

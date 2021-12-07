@@ -7,6 +7,12 @@ use std::{mem, ptr};
 const ALVR_MAX_VIDEO_BUFFER_SIZE: usize = ALVR_MAX_PACKET_SIZE - mem::size_of::<VideoFrameHeader>();
 const ALVR_FEC_SHARDS_MAX: usize = 20;
 
+pub enum ReconstructError {
+    NoOp,
+    NotEnoughParity,
+    ReconstructFailed,
+}
+
 #[derive(Debug)]
 pub struct FecQueue {
     current_frame: VideoFrameHeader,
@@ -216,9 +222,9 @@ impl FecQueue {
         }
     }
 
-    pub fn reconstruct(&mut self) -> bool {
+    pub fn reconstruct(&mut self) -> Result<(), ReconstructError> {
         if self.recovered {
-            return false;
+            return Err(ReconstructError::NoOp);
         }
 
         let mut ret = true;
@@ -270,16 +276,17 @@ impl FecQueue {
             // If this fails, something is probably wrong with our FEC state.
             if result.is_err() {
                 error!("ReedSolomon::reconstruct failed.");
-                return false;
+                return Err(ReconstructError::ReconstructFailed);
             }
         }
 
         if ret {
             self.recovered = true;
             debug!("Frame was successfully recovered by FEC.");
+            Ok(())
+        } else {
+            Err(ReconstructError::NotEnoughParity)
         }
-
-        ret
     }
 
     pub fn get_frame_buffer(&self) -> Bytes {
