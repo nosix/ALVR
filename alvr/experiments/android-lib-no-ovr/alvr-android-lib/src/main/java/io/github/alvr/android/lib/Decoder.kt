@@ -5,6 +5,7 @@ import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.util.Log
 import android.view.Surface
+import io.github.alvr.android.lib.event.AlvrCodec
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,7 +26,7 @@ class Decoder(
 
     private var mCodec: MediaCodec? = null
 
-    fun start(videoFormat: VideoFormat, isRealTime: Boolean, surface: Surface) {
+    fun start(videoFormat: AlvrCodec, isRealTime: Boolean, surface: Surface) {
         mScope.launch {
             stopInternal()
             val format = MediaFormat.createVideoFormat(videoFormat.mime, 512, 1024).apply {
@@ -33,7 +34,7 @@ class Decoder(
                 setInteger("vendor.qti-ext-dec-low-latency.enable", 1) //Qualcomm low latency mode
                 setInteger(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE.toInt())
                 setInteger(MediaFormat.KEY_PRIORITY, if (isRealTime) 0 else 1)
-//            setByteBuffer("csd-0", ByteBuffer.wrap(nal.buf, 0, nal.buf.length))
+                //setByteBuffer("csd-0", ByteBuffer.wrap(sps_nal.buf, 0, sps_nal.buf.length))
             }
             val codecs = MediaCodecList(MediaCodecList.REGULAR_CODECS)
             @Suppress("BlockingMethodInNonBlockingContext")
@@ -44,6 +45,7 @@ class Decoder(
             }
             codec.start()
             mCodec = codec
+            Log.i(TAG, "The decoder has started.")
         }
     }
 
@@ -55,9 +57,10 @@ class Decoder(
 
     private fun stopInternal() {
         mCodec?.run {
+            mCodec = null
             stop()
             release()
-            mCodec = null
+            Log.i(TAG, "The decoder has stopped.")
         }
     }
 

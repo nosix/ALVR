@@ -4,17 +4,17 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
-sealed class AlvrCodec {
+sealed class AlvrCodec(val mime: String) {
 
     @Serializable
     @SerialName("H264")
-    object H264 : AlvrCodec()
+    object H264 : AlvrCodec("video/avc")
 
     @Serializable
     @SerialName("H265")
-    object H265 : AlvrCodec()
+    object H265 : AlvrCodec("video/hevc")
 
     @Serializable
     @SerialName("Unknown")
-    object Unknown : AlvrCodec()
+    object Unknown : AlvrCodec("video/unknown")
 }
