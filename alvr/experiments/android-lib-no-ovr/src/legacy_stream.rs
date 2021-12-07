@@ -80,10 +80,12 @@ impl<P,S> StreamHandler<P,S> where P: Fn(Nal), S: Fn(Vec<u8>) {
             let mut latency_controller = latency_controller::INSTANCE.lock();
 
             let mut fec_failure = latency_controller.get_fec_failure_state();
-            let processed = self.nal_parser.process_packet(
+            let not_broken = self.nal_parser.process_packet(
                 video_frame_header, video_frame_buffer, &mut fec_failure);
-            if processed {
+            if not_broken {
                 latency_controller.received_last(tracking_frame_index);
+            } else {
+                // TODO request IDR
             }
             if fec_failure {
                 latency_controller.fec_failure();
@@ -101,14 +103,14 @@ impl<P,S> StreamHandler<P,S> where P: Fn(Nal), S: Fn(Vec<u8>) {
                 sequence - expected_video_sequence
             } else {
                 // out-of-order
-                // FIXME This is not accurate statistics.
+                error!("VideoPacket out of order");
                 expected_video_sequence - sequence
             };
 
             let mut latency_controller = latency_controller::INSTANCE.lock();
             latency_controller.packet_loss(lost);
 
-            error!("VideoPacket loss {} ({} -> {})", lost, expected_video_sequence, sequence - 1)
+            error!("VideoPacket loss {} ({} -> {})", lost, self.prev_video_sequence, sequence)
         }
         self.prev_video_sequence = sequence;
     }

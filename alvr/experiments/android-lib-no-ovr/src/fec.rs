@@ -237,7 +237,7 @@ impl FecQueue {
             }
 
             let shards = self.received_data_shards[pi] + self.received_parity_shard[pi];
-            if (shards as usize) < self.total_data_shards {
+            if shards < self.total_data_shards as u32 {
                 // Not enough parity data
                 ret = false;
                 continue;
@@ -253,7 +253,8 @@ impl FecQueue {
             for i in 0..self.total_shards {
                 let (_, p) = self.frame_buffer.split_at(
                     (i * self.shard_packets + pi) * ALVR_MAX_VIDEO_BUFFER_SIZE);
-                self.shards[i].copy_from_slice(p);
+                self.shards[i].clear();
+                self.shards[i].extend_from_slice(p);
             }
 
             let result = if let Some(ref rs) = self.rs {
