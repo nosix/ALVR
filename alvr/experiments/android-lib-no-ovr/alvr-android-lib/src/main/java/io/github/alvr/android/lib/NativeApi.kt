@@ -2,6 +2,12 @@ package io.github.alvr.android.lib
 
 class NativeApi {
 
+    companion object {
+        init {
+            System.loadLibrary("alvr_android")
+        }
+    }
+
     /**
      * Initialize preference values.
      *
@@ -20,10 +26,4 @@ class NativeApi {
 
     external fun notifyAvailableInputBuffer(buffer: InputBuffer)
     external fun notifyAvailableOutputBuffer(frameIndex: Long)
-
-    companion object {
-        init {
-            System.loadLibrary("alvr_android")
-        }
-    }
 }

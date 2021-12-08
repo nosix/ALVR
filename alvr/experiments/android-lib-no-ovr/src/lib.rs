@@ -10,6 +10,7 @@ mod legacy_packets;
 mod legacy_stream;
 mod logging_backend;
 mod nal;
+mod unity;
 mod util;
 
 use crate::{

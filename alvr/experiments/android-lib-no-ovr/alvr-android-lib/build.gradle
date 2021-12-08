@@ -7,8 +7,8 @@ plugins {
 }
 
 ext {
-    groupId = "io.github.alvr"
-    versionName = "0.1"
+    groupId = 'io.github.alvr'
+    versionName = '0.1'
 }
 
 group = groupId
@@ -20,7 +20,7 @@ android {
 
     defaultConfig {
         minSdk 26
-        targetSdk 30
+        targetSdk 31
         versionCode 1
         versionName versionName
 
@@ -55,7 +55,7 @@ dependencies {
 cargo {
     module = ".."
     libname = "alvr_android"
-    targets = ["arm64"]
+    targets = ["arm64", "arm"]
     targetDirectory = "../../../../target"
 }
 
