@@ -59,7 +59,7 @@ class AlvrClient(
 
     override fun onCreate(owner: LifecycleOwner) {
         val shardPref = requireNotNull(mSharedPreferences) {
-            "Call the loadPreference method with onCreate."
+            "Call the attachPreference method before onCreate."
         }
 
         val preferences = shardPref.get().also {
