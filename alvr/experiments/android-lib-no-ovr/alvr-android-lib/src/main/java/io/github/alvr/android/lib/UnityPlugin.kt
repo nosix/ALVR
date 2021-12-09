@@ -3,7 +3,6 @@ package io.github.alvr.android.lib
 import android.app.Activity
 import android.opengl.EGL14
 import android.util.Log
-import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleObserver
 import androidx.lifecycle.LifecycleOwner
@@ -14,7 +13,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
-import java.lang.ref.WeakReference
 
 /**
  * This class used from Unity.
@@ -70,7 +68,6 @@ class UnityPlugin(activity: Activity) : LifecycleOwner {
     }
 
     private val mMainScope = CoroutineScope(Dispatchers.Main)
-    private val mActivity = WeakReference(activity)
     private val mLifecycle = PluginLifecycle(this)
     private val mAlvrClient = AlvrClient()
 
@@ -78,6 +75,7 @@ class UnityPlugin(activity: Activity) : LifecycleOwner {
 
     init {
         attach()
+        mAlvrClient.attachPreference(activity.getPreferences(Activity.MODE_PRIVATE))
     }
 
     private external fun attach()
@@ -102,13 +100,6 @@ class UnityPlugin(activity: Activity) : LifecycleOwner {
     fun onAwake() {
         mMainScope.launch {
             mLifecycle.addObserver(mAlvrClient)
-
-            mActivity.get()?.let { activity ->
-                mAlvrClient.attachPreference(activity.getPreferences(Activity.MODE_PRIVATE))
-            } ?: run {
-                Log.w(TAG, "Activity is already released.")
-            }
-
             mLifecycle.onCreate()
         }
     }
