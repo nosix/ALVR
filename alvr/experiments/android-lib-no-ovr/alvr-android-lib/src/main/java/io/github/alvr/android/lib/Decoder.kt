@@ -13,7 +13,7 @@ import kotlinx.coroutines.launch
 import java.nio.ByteBuffer
 
 class Decoder(
-    dispatcher: CoroutineDispatcher = Dispatchers.Default,
+    singleThreadDispatcher: CoroutineDispatcher = Dispatchers.Main,
     private val onInputBufferAvailable: (InputBuffer) -> Unit,
     private val onOutputBufferAvailable: (Long) -> Unit
 ) {
@@ -21,14 +21,17 @@ class Decoder(
         private val TAG = Decoder::class.simpleName
     }
 
-    private val mScope = CoroutineScope(dispatcher)
+    private val mScope = CoroutineScope(singleThreadDispatcher)
     private val mFrameMap = FrameMap()
 
+    private var mStreamSurface: EGLSurfaceHelper.SurfaceHolder? = null
     private var mCodec: MediaCodec? = null
 
     fun start(videoFormat: AlvrCodec, isRealTime: Boolean, surface: Surface) {
         mScope.launch {
             stopInternal()
+            val eglSurface = EGLSurfaceHelper(surface = surface)
+            val streamSurface = eglSurface.createSurface(512, 1024)
             val format = MediaFormat.createVideoFormat(videoFormat.mime, 512, 1024).apply {
                 setString("KEY_MIME", videoFormat.mime)
                 setInteger("vendor.qti-ext-dec-low-latency.enable", 1) //Qualcomm low latency mode
@@ -41,10 +44,11 @@ class Decoder(
             val codec = MediaCodec.createByCodecName(codecs.findDecoderForFormat(format)).apply {
                 setVideoScalingMode(MediaCodec.VIDEO_SCALING_MODE_SCALE_TO_FIT)
                 setCallback(mMediaCodecCallback)
-                configure(format, surface, null, 0)
+                configure(format, streamSurface.surface, null, 0)
             }
             codec.start()
             mCodec = codec
+            mStreamSurface = streamSurface
             Log.i(TAG, "The decoder has started.")
         }
     }
@@ -56,11 +60,16 @@ class Decoder(
     }
 
     private fun stopInternal() {
+        mStreamSurface?.run {
+            mStreamSurface = null
+            close()
+            Log.i(TAG, "The stream surface has closed.")
+        }
         mCodec?.run {
             mCodec = null
             stop()
             release()
-            Log.i(TAG, "The decoder has stopped.")
+            Log.i(TAG, "The codec has stopped.")
         }
     }
 
@@ -80,6 +89,9 @@ class Decoder(
             codec.releaseOutputBuffer(index, true)
             val frameIndex = mFrameMap.remove(info.presentationTimeUs)
             if (frameIndex != 0L) {
+                mScope.launch {
+                    mStreamSurface?.render()
+                }
                 this@Decoder.onOutputBufferAvailable(frameIndex)
             } else {
                 Log.w(TAG, "The frameIndex corresponding to presentationTimeUs was not found.")

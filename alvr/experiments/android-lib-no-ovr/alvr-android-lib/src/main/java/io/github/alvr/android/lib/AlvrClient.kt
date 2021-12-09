@@ -20,7 +20,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class AlvrClient(
-    private val dispatcher: CoroutineDispatcher = Dispatchers.Default
+    private val singleThreadDispatcher: CoroutineDispatcher = Dispatchers.Main
 ) : DefaultLifecycleObserver {
 
     companion object {
@@ -91,7 +91,7 @@ class AlvrClient(
         mNativeApi.onCreate()
 
         mDecoder = Decoder(
-            dispatcher,
+            singleThreadDispatcher,
             onInputBufferAvailable = { inputBuffer ->
                 mNativeApi.notifyAvailableInputBuffer(inputBuffer)
             },
@@ -100,7 +100,7 @@ class AlvrClient(
             }
         )
 
-        owner.lifecycleScope.launch(dispatcher) {
+        owner.lifecycleScope.launch(singleThreadDispatcher) {
             owner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 try {
                     while (isActive) {

@@ -71,7 +71,7 @@ class UnityPlugin(activity: Activity) : LifecycleOwner {
     private val mLifecycle = PluginLifecycle(this)
     private val mAlvrClient = AlvrClient()
 
-    private var mEGLContext: ExternalEGLContext? = null
+    private var mEglSurface: ExternalEGLContext? = null
 
     init {
         attach()
@@ -93,7 +93,7 @@ class UnityPlugin(activity: Activity) : LifecycleOwner {
         }
 
         mMainScope.launch {
-            mEGLContext = ExternalEGLContext(unityContext)
+            mEglSurface = ExternalEGLContext(unityContext)
         }
     }
 
@@ -128,16 +128,16 @@ class UnityPlugin(activity: Activity) : LifecycleOwner {
 
     fun onDestroy() {
         mMainScope.cancel()
-        mEGLContext?.close()
+        mEglSurface?.close()
         mLifecycle.onDestroy()
     }
 
     fun attachTexture(texturePtr: Int, width: Int, height: Int) {
-        val context = checkNotNull(mEGLContext) { "EGLContext is not initialized" }
+        val eglSurface = checkNotNull(mEglSurface) { "EGLSurface is not initialized" }
         mMainScope.launch {
-            val texture = context.createSurfaceTexture(texturePtr, width, height)
+            val texture = eglSurface.createSurfaceTexture(texturePtr, width, height)
             var isFrameAvailable = false
-            val surface = context.createSurface(texture) {
+            val surface = eglSurface.createSurface(texture) {
                 isFrameAvailable = true
             }
             try {
@@ -149,11 +149,10 @@ class UnityPlugin(activity: Activity) : LifecycleOwner {
                         continue
                     }
                     isFrameAvailable = false
-                    context.updateTexImage(texture)
+                    eglSurface.updateTexImage(texture)
                     yield()
                 }
-            }
-            finally {
+            } finally {
                 surface.release()
                 texture.release()
             }
@@ -168,9 +167,7 @@ class UnityPlugin(activity: Activity) : LifecycleOwner {
 
     override fun getLifecycle(): Lifecycle = mLifecycle
 
-    private class PluginLifecycle(owner: LifecycleOwner)
-        : Lifecycle()
-    {
+    private class PluginLifecycle(owner: LifecycleOwner) : Lifecycle() {
         private val mRegistry = LifecycleRegistry(owner)
 
         override fun getCurrentState(): State = mRegistry.currentState

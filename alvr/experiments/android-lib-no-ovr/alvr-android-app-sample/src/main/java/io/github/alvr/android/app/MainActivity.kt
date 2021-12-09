@@ -7,6 +7,9 @@ import android.util.Log
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import io.github.alvr.android.lib.AlvrClient
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
+import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
 
@@ -14,7 +17,9 @@ class MainActivity : AppCompatActivity() {
         private val TAG = MainActivity::class.simpleName
     }
 
-    private val mAlvrClient = AlvrClient()
+    private val mAlvrClient = AlvrClient(
+        Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
