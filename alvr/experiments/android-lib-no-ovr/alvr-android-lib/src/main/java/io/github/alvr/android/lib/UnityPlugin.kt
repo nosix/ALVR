@@ -3,15 +3,21 @@ package io.github.alvr.android.lib
 import android.app.Activity
 import android.opengl.EGL14
 import android.util.Log
+import android.view.Surface
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
+import io.github.alvr.android.lib.gl.GlContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 
 /**
@@ -67,11 +73,10 @@ class UnityPlugin(activity: Activity) : LifecycleOwner {
         }
     }
 
-    private val mMainScope = CoroutineScope(Dispatchers.Main)
+    private val mScope = CoroutineScope(Dispatchers.Main)
+    private val mContext = MutableStateFlow<GlContext?>(null)
     private val mLifecycle = PluginLifecycle(this)
     private val mAlvrClient = AlvrClient()
-
-    private var mEglSurface: ExternalEGLContext? = null
 
     init {
         attach()
@@ -92,75 +97,90 @@ class UnityPlugin(activity: Activity) : LifecycleOwner {
             throw IllegalStateException("Unity EGLContext is invalid")
         }
 
-        mMainScope.launch {
-            mEglSurface = ExternalEGLContext(unityContext)
+        mScope.launch {
+            mContext.value = GlContext(unityContext)
         }
     }
 
+    private suspend fun MutableStateFlow<GlContext?>.receive(): GlContext = filterNotNull().first()
+
     fun onAwake() {
-        mMainScope.launch {
-            mLifecycle.addObserver(mAlvrClient)
-            mLifecycle.onCreate()
+        mScope.launch {
+            withContext(mContext.receive()) {
+                mLifecycle.addObserver(mAlvrClient)
+                mLifecycle.onCreate()
+            }
         }
     }
 
     fun onEnable() {
-        mMainScope.launch {
-            mLifecycle.onStart()
+        mScope.launch {
+            withContext(mContext.receive()) {
+                mLifecycle.onStart()
+            }
         }
     }
 
     fun onApplicationPause(pauseStatus: Boolean) {
-        mMainScope.launch {
-            if (pauseStatus) {
-                mLifecycle.onPause()
-            } else {
-                mLifecycle.onResume()
+        mScope.launch {
+            withContext(mContext.receive()) {
+                if (pauseStatus) {
+                    mLifecycle.onPause()
+                } else {
+                    mLifecycle.onResume()
+                }
             }
         }
     }
 
     fun onDisable() {
-        mMainScope.launch {
-            mLifecycle.onStop()
+        mScope.launch {
+            withContext(mContext.receive()) {
+                mLifecycle.onStop()
+            }
         }
     }
 
     fun onDestroy() {
-        mMainScope.cancel()
-        mEglSurface?.close()
+        mScope.cancel()
         mLifecycle.onDestroy()
+        mContext.value?.close()
     }
 
-    fun attachTexture(texturePtr: Int, width: Int, height: Int) {
-        val eglSurface = checkNotNull(mEglSurface) { "EGLSurface is not initialized" }
-        mMainScope.launch {
-            val texture = eglSurface.createSurfaceTexture(texturePtr, width, height)
-            var isFrameAvailable = false
-            val surface = eglSurface.createSurface(texture) {
-                isFrameAvailable = true
-            }
-            try {
-                mAlvrClient.attachSurface(surface)
-                while (true) {
-                    // TODO use channel
-                    if (!isFrameAvailable) {
-                        delay(100)
-                        continue
-                    }
-                    isFrameAvailable = false
-                    eglSurface.updateTexImage(texture)
-                    yield()
+    fun attachTexture(textureId: Int, width: Int, height: Int) {
+        mScope.launch {
+            withContext(mContext.receive()) {
+                val context = checkNotNull(coroutineContext[GlContext.Key])
+                var isFrameAvailable = false
+                val texture = context.createSurfaceTexture(textureId, width, height)
+                texture.surfaceTexture.setOnFrameAvailableListener {
+                    isFrameAvailable = true
                 }
-            } finally {
-                surface.release()
-                texture.release()
+                val surface = Surface(texture.surfaceTexture)
+                try {
+                    mAlvrClient.attachSurface(surface)
+                    while (true) {
+                        // TODO use channel
+                        if (!isFrameAvailable) {
+                            delay(16)
+                            continue
+                        }
+                        isFrameAvailable = false
+                        context.withMakeCurrent {
+                            texture.updateTexImage()
+                        }
+                        yield()
+                    }
+                } finally {
+                    surface.release()
+                    context.releaseSurfaceTexture(texture)
+                }
             }
         }
     }
 
     fun detachTexture() {
-        mMainScope.launch {
+        mScope.launch {
             mAlvrClient.detachSurface()
         }
     }

@@ -4,16 +4,16 @@ import android.media.MediaCodec
 import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.util.Log
-import android.view.Surface
 import io.github.alvr.android.lib.event.AlvrCodec
-import kotlinx.coroutines.CoroutineDispatcher
+import io.github.alvr.android.lib.gl.GlSurface
+import io.github.alvr.android.lib.gl.SurfaceHolder
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.nio.ByteBuffer
+import kotlin.coroutines.CoroutineContext
 
 class Decoder(
-    singleThreadDispatcher: CoroutineDispatcher = Dispatchers.Main,
+    context: CoroutineContext,
     private val onInputBufferAvailable: (InputBuffer) -> Unit,
     private val onOutputBufferAvailable: (Long) -> Unit
 ) {
@@ -21,17 +21,17 @@ class Decoder(
         private val TAG = Decoder::class.simpleName
     }
 
-    private val mScope = CoroutineScope(singleThreadDispatcher)
+    private val mScope = CoroutineScope(context)
     private val mFrameMap = FrameMap()
 
-    private var mStreamSurface: EGLSurfaceHelper.SurfaceHolder? = null
+    private var mGlSurface: GlSurface? = null
+    private var mFrameSurface: SurfaceHolder? = null
     private var mCodec: MediaCodec? = null
 
-    fun start(videoFormat: AlvrCodec, isRealTime: Boolean, surface: Surface) {
+    fun start(videoFormat: AlvrCodec, isRealTime: Boolean, surface: GlSurface) {
         mScope.launch {
             stopInternal()
-            val eglSurface = EGLSurfaceHelper(surface = surface)
-            val streamSurface = eglSurface.createSurface(512, 1024)
+            val frameSurface = surface.context.createSurface(512, 1024)
             val format = MediaFormat.createVideoFormat(videoFormat.mime, 512, 1024).apply {
                 setString("KEY_MIME", videoFormat.mime)
                 setInteger("vendor.qti-ext-dec-low-latency.enable", 1) //Qualcomm low latency mode
@@ -44,11 +44,12 @@ class Decoder(
             val codec = MediaCodec.createByCodecName(codecs.findDecoderForFormat(format)).apply {
                 setVideoScalingMode(MediaCodec.VIDEO_SCALING_MODE_SCALE_TO_FIT)
                 setCallback(mMediaCodecCallback)
-                configure(format, streamSurface.surface, null, 0)
+                configure(format, frameSurface.surface, null, 0)
             }
             codec.start()
             mCodec = codec
-            mStreamSurface = streamSurface
+            mGlSurface = surface
+            mFrameSurface = frameSurface
             Log.i(TAG, "The decoder has started.")
         }
     }
@@ -60,16 +61,21 @@ class Decoder(
     }
 
     private fun stopInternal() {
-        mStreamSurface?.run {
-            mStreamSurface = null
-            close()
-            Log.i(TAG, "The stream surface has closed.")
-        }
         mCodec?.run {
             mCodec = null
             stop()
             release()
             Log.i(TAG, "The codec has stopped.")
+        }
+        mGlSurface?.run {
+            mGlSurface = null
+            mFrameSurface?.let { surface ->
+                mFrameSurface = null
+                context.releaseSurface(surface)
+                Log.i(TAG, "The frame surface has released.")
+            }
+            release()
+            Log.i(TAG, "The EGLSurface has destroyed.")
         }
     }
 
@@ -89,8 +95,11 @@ class Decoder(
             codec.releaseOutputBuffer(index, true)
             val frameIndex = mFrameMap.remove(info.presentationTimeUs)
             if (frameIndex != 0L) {
+                // TODO reduce launch
                 mScope.launch {
-                    mStreamSurface?.render()
+                    mFrameSurface?.let { frame ->
+                        mGlSurface?.render(frame)
+                    }
                 }
                 this@Decoder.onOutputBufferAvailable(frameIndex)
             } else {

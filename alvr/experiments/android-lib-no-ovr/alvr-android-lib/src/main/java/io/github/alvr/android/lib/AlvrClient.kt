@@ -12,20 +12,29 @@ import io.github.alvr.android.lib.AlvrPreferences.Companion.get
 import io.github.alvr.android.lib.AlvrPreferences.Companion.set
 import io.github.alvr.android.lib.event.ConnectionEvent
 import io.github.alvr.android.lib.event.ConnectionSettings
-import kotlinx.coroutines.CoroutineDispatcher
+import io.github.alvr.android.lib.gl.GlContext
+import io.github.alvr.android.lib.gl.GlSurface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.coroutines.CoroutineContext
 
 class AlvrClient(
-    private val singleThreadDispatcher: CoroutineDispatcher = Dispatchers.Main
+    context: CoroutineContext = Dispatchers.Main + GlContext()
 ) : DefaultLifecycleObserver {
 
     companion object {
         private val TAG = AlvrClient::class.simpleName
     }
+
+    private val mCoroutineContext: CoroutineContext =
+        if (context[GlContext.Key] == null) {
+            context + GlContext()
+        } else {
+            context
+        }
 
     private var mSharedPreferences: SharedPreferences? = null
 
@@ -91,7 +100,7 @@ class AlvrClient(
         mNativeApi.onCreate()
 
         mDecoder = Decoder(
-            singleThreadDispatcher,
+            mCoroutineContext,
             onInputBufferAvailable = { inputBuffer ->
                 mNativeApi.notifyAvailableInputBuffer(inputBuffer)
             },
@@ -100,13 +109,20 @@ class AlvrClient(
             }
         )
 
-        owner.lifecycleScope.launch(singleThreadDispatcher) {
+        owner.lifecycleScope.launch(mCoroutineContext) {
             owner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 try {
+                    val context = checkNotNull(coroutineContext[GlContext.Key]) {
+                        "GlContext is not set to CoroutineContext."
+                    }
                     while (isActive) {
                         val settings = mSettingsChannel.receive()
                         val surface = mSurfaceChannel.receive()
-                        mDecoder.start(settings.codec, settings.realtime, surface)
+                        mDecoder.start(
+                            settings.codec,
+                            settings.realtime,
+                            GlSurface(context, surface)
+                        )
                     }
                 } finally {
                     mDecoder.stop()
