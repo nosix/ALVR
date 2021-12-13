@@ -43,18 +43,18 @@ class AlvrClient(
     private var mIsReady = false
 
     private val mSettingsChannel = Channel<ConnectionSettings>(1, BufferOverflow.DROP_OLDEST)
-    private val mSurfaceChannel = Channel<Surface>(1, BufferOverflow.DROP_OLDEST)
+    private val mScreenChannel = Channel<Screen>(1, BufferOverflow.DROP_OLDEST)
 
     fun attachPreference(shardPref: SharedPreferences) {
         mSharedPreferences = shardPref
     }
 
-    fun attachSurface(surface: Surface) {
+    fun attachScreen(surface: Surface, width: Int, height: Int) {
         if (!mIsReady) {
             throw RuntimeException("The decoder is not ready.")
         }
-        check(mSurfaceChannel.trySend(surface).isSuccess) {
-            "Surface could not be attached."
+        check(mScreenChannel.trySend(Screen(surface, width, height)).isSuccess) {
+            "Screen could not be attached."
         }
     }
 
@@ -117,11 +117,13 @@ class AlvrClient(
                     }
                     while (isActive) {
                         val settings = mSettingsChannel.receive()
-                        val surface = mSurfaceChannel.receive()
+                        val screen = mScreenChannel.receive()
                         mDecoder.start(
                             settings.codec,
                             settings.realtime,
-                            GlSurface(context, surface)
+                            GlSurface(context, screen.surface),
+                            screen.width,
+                            screen.height
                         )
                     }
                 } finally {

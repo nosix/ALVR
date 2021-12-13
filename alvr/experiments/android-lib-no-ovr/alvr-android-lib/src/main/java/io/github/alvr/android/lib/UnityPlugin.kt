@@ -158,7 +158,7 @@ class UnityPlugin(activity: Activity) : LifecycleOwner {
                 }
                 val surface = Surface(texture.surfaceTexture)
                 try {
-                    mAlvrClient.attachSurface(surface)
+                    mAlvrClient.attachScreen(surface, width, height)
                     while (true) {
                         // TODO use channel
                         if (!isFrameAvailable) {

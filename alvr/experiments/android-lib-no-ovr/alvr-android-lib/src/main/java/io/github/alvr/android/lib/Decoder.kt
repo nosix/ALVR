@@ -30,9 +30,13 @@ class Decoder(
     private var mRenderer: Renderer? = null
     private var mCodec: MediaCodec? = null
 
-    fun start(videoFormat: AlvrCodec, isRealTime: Boolean, surface: GlSurface) {
-        val width = 1024
-        val height = 512
+    fun start(
+        videoFormat: AlvrCodec,
+        isRealTime: Boolean,
+        surface: GlSurface,
+        width: Int,
+        height: Int
+    ) {
         mScope.launch {
             stopInternal()
             val frameSurface = surface.context.createSurface(width, height)
