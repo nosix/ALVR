@@ -6,6 +6,7 @@ import android.media.MediaFormat
 import android.util.Log
 import io.github.alvr.android.lib.event.AlvrCodec
 import io.github.alvr.android.lib.gl.GlSurface
+import io.github.alvr.android.lib.gl.Renderer
 import io.github.alvr.android.lib.gl.SurfaceHolder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -26,13 +27,16 @@ class Decoder(
 
     private var mGlSurface: GlSurface? = null
     private var mFrameSurface: SurfaceHolder? = null
+    private var mRenderer: Renderer? = null
     private var mCodec: MediaCodec? = null
 
     fun start(videoFormat: AlvrCodec, isRealTime: Boolean, surface: GlSurface) {
+        val width = 1024
+        val height = 512
         mScope.launch {
             stopInternal()
-            val frameSurface = surface.context.createSurface(512, 1024)
-            val format = MediaFormat.createVideoFormat(videoFormat.mime, 512, 1024).apply {
+            val frameSurface = surface.context.createSurface(width, height)
+            val format = MediaFormat.createVideoFormat(videoFormat.mime, width, height).apply {
                 setString("KEY_MIME", videoFormat.mime)
                 setInteger("vendor.qti-ext-dec-low-latency.enable", 1) //Qualcomm low latency mode
                 setInteger(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE.toInt())
@@ -50,6 +54,7 @@ class Decoder(
             mCodec = codec
             mGlSurface = surface
             mFrameSurface = frameSurface
+            mRenderer = Renderer(surface, width, height)
             Log.i(TAG, "The decoder has started.")
         }
     }
@@ -98,7 +103,7 @@ class Decoder(
                 // TODO reduce launch
                 mScope.launch {
                     mFrameSurface?.let { frame ->
-                        mGlSurface?.render(frame)
+                        mRenderer?.render(frame)
                     }
                 }
                 this@Decoder.onOutputBufferAvailable(frameIndex)
