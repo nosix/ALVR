@@ -2,14 +2,17 @@ package io.github.alvr.android.lib.gl
 
 import org.intellij.lang.annotations.Language
 
+val ATTRIB_VERTEX = FloatVertexAttribArray("a_Vertex", COORDS_2D)
+const val UNIFORM_TEXTURE = "u_Texture"
+
 @Language("glsl")
 val PASS_THROUGH_VERTEX_SHADER = """
-attribute vec4 a_Position;
-attribute vec2 a_TextureCoord;
+const vec2 madd = vec2(0.5,0.5);
+attribute vec2 a_Vertex;
 varying vec2 v_TextureCoord;
 void main() {
-    v_TextureCoord = a_TextureCoord;
-    gl_Position = a_Position;
+    v_TextureCoord = a_Vertex.xy * madd + madd;
+    gl_Position = vec4(a_Vertex.xy, 0.0, 1.0);
 }
 """
 

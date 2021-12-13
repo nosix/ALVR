@@ -11,16 +11,9 @@ class Renderer(
     width: Int,
     height: Int
 ) {
-    companion object {
-        private val ATTRIB_POSITION = FloatVertexAttribArray("a_Position", COORDS_3D)
-        private val ATTRIB_TEXTURE_COORD = FloatVertexAttribArray("a_TextureCoord", COORDS_2D)
-        private const val UNIFORM_TEXTURE = "u_Texture"
-    }
-
     private class Properties(
         val program: Int,
         val vertexBuffer: FloatBuffer,
-        val textureCoordBuffer: FloatBuffer,
         val drawOrderBuffer: ShortBuffer,
         val drawOrderCount: Int
     )
@@ -39,31 +32,23 @@ class Renderer(
         val fragmentShader = loadShader(GLES32.GL_FRAGMENT_SHADER, PASS_THROUGH_FRAGMENT_SHADER)
         val program = setupProgram(vertexShader, fragmentShader)
 
-        val squareCoords = floatArrayOf(
-            -0.5f, 0.5f, 0.0f, // top left
-            0.5f, 0.5f, 0.0f, // top right
-            -0.5f, -0.5f, 0.0f, // bottom left
-            0.5f, -0.5f, 0.0f // bottom right
-        )
-        val textureCoord = floatArrayOf(
-            0.0f, 0.0f,
-            1.0f, 0.0f,
-            0.0f, 1.0f,
-            1.0f, 1.0f
+        val vertex = floatArrayOf(
+            -1.0f, -1.0f, // top left
+            1.0f, -1.0f, // top right
+            -1.0f, 1.0f, // bottom left
+            1.0f, 1.0f // bottom right
         )
         val drawOrder = shortArrayOf(
             0, 1, 2,
             3, 2, 1
         )
 
-        val vertexBuffer = allocateDirectFloatBuffer(squareCoords)
-        val textureCoordBuffer = allocateDirectFloatBuffer(textureCoord)
+        val vertexBuffer = allocateDirectFloatBuffer(vertex)
         val drawOrderBuffer = allocateDirectShortBuffer(drawOrder)
 
         return Properties(
             program,
             vertexBuffer,
-            textureCoordBuffer,
             drawOrderBuffer,
             drawOrder.size
         )
@@ -75,20 +60,15 @@ class Renderer(
         GLES32.glClear(GLES32.GL_COLOR_BUFFER_BIT)
         GLES32.glUseProgram(mProperties.program)
 
-        val positionHandler = ATTRIB_POSITION.enable(
+        val vertexHandler = ATTRIB_VERTEX.enable(
             mProperties.program,
             mProperties.vertexBuffer
-        )
-
-        val textureCoordHandler = ATTRIB_TEXTURE_COORD.enable(
-            mProperties.program,
-            mProperties.textureCoordBuffer
         )
 
         GLES32.glGetUniformLocation(mProperties.program, UNIFORM_TEXTURE).also {
             GLES32.glActiveTexture(GLES32.GL_TEXTURE0)
             GLES32.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, frame.textureId)
-            GLES32.glUniform1i(it, 0)
+            GLES32.glUniform1i(it, 0) // TEXTURE0
         }
 
         GLES32.glDrawElements(
@@ -98,8 +78,7 @@ class Renderer(
             mProperties.drawOrderBuffer
         )
 
-        GLES32.glDisableVertexAttribArray(positionHandler)
-        GLES32.glDisableVertexAttribArray(textureCoordHandler)
+        GLES32.glDisableVertexAttribArray(vertexHandler)
 
         GLES32.glFlush()
         EGL14.eglSwapBuffers(display, surface)
