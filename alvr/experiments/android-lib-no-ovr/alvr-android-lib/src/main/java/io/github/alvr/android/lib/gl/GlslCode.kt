@@ -12,7 +12,7 @@ attribute vec2 a_Vertex;
 varying vec2 v_TextureCoord;
 void main() {
     v_TextureCoord = a_Vertex.xy * madd + madd;
-    gl_Position = vec4(a_Vertex.xy, 0.0, 1.0);
+    gl_Position = vec4(a_Vertex.x, -a_Vertex.y, 0.0, 1.0);
 }
 """
 

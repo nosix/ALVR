@@ -33,10 +33,10 @@ class Renderer(
         val program = setupProgram(vertexShader, fragmentShader)
 
         val vertex = floatArrayOf(
-            -1.0f, -1.0f, // top left
-            1.0f, -1.0f, // top right
-            -1.0f, 1.0f, // bottom left
-            1.0f, 1.0f // bottom right
+            -1.0f, -1.0f, // bottom left
+            1.0f, -1.0f, // bottom right
+            -1.0f, 1.0f, // top left
+            1.0f, 1.0f // top right
         )
         val drawOrder = shortArrayOf(
             0, 1, 2,
