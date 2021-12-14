@@ -1,6 +1,6 @@
 use crate::{
     legacy_packets::TimeSync,
-    util
+    util,
 };
 use alvr_common::prelude::*;
 use once_cell::sync::Lazy;
@@ -32,7 +32,7 @@ pub struct LatencyController {
     frames_in_second: f32,
 
     time_sync_sequence: u64,
-    fec_failure_state: bool
+    fec_failure_state: bool,
 }
 
 #[derive(Default, Copy, Clone)]
@@ -49,7 +49,7 @@ struct FrameTimestamp {
     decoder_output: u64,
     rendered1: u64,
     rendered2: u64,
-    submit: u64
+    submit: u64,
 }
 
 impl LatencyController {
@@ -68,8 +68,8 @@ impl LatencyController {
 
             last_submit: 0,
             frames_in_second: 0.0,
-            time_sync_sequence: u64::MAX,
-            fec_failure_state: false
+            time_sync_sequence: 0,
+            fec_failure_state: false,
         }
     }
 
@@ -92,16 +92,19 @@ impl LatencyController {
         debug!("received_first {}", self.get_frame(frame_index).received_first);
     }
 
+    // FIXME May be called multiple times with the same index
     pub fn received_last(&mut self, frame_index: u64) {
         self.get_frame(frame_index).received_last = util::get_timestamp_us();
         debug!("received_last {}", self.get_frame(frame_index).received_last);
     }
 
+    // FIXME May be called multiple times with the same index
     pub fn decoder_input(&mut self, frame_index: u64) {
         self.get_frame(frame_index).decoder_input = util::get_timestamp_us();
         debug!("decoder_input {}", self.get_frame(frame_index).decoder_input);
     }
 
+    // FIXME May be called multiple times with the same index
     pub fn decoder_output(&mut self, frame_index: u64) {
         self.get_frame(frame_index).decoder_output = util::get_timestamp_us();
         debug!("decoder_output {}", self.get_frame(frame_index).decoder_output);
@@ -122,10 +125,19 @@ impl LatencyController {
         debug!("tracking {}", self.get_frame(frame_index).tracking);
     }
 
-    pub fn submit(&mut self, frame_index: u64) {
+    pub fn submit(&mut self, frame_index: u64) -> bool {
         self.get_frame(frame_index).submit = util::get_timestamp_us();
 
         let timestamp = *self.get_frame(frame_index);
+
+        if timestamp.estimated_sent > timestamp.received_last ||
+            timestamp.decoder_input > timestamp.decoder_output ||
+            timestamp.tracking > timestamp.received ||
+            self.last_submit >= timestamp.submit {
+            error!("invalid timestamp");
+            return false;
+        }
+
         self.latency[0] = (timestamp.submit - timestamp.tracking) as u32;
         self.latency[1] = (timestamp.received_last - timestamp.estimated_sent) as u32;
         self.latency[2] = (timestamp.decoder_output - timestamp.decoder_input) as u32;
@@ -139,6 +151,8 @@ impl LatencyController {
 
         self.frames_in_second = 1000000.0 / (timestamp.submit - self.last_submit) as f32;
         self.last_submit = timestamp.submit;
+
+        return true;
     }
 
     pub fn packet_loss(&mut self, lost: u32) {
@@ -200,13 +214,18 @@ impl LatencyController {
         self.fec_failure_state = fec_failure;
     }
 
-    pub fn new_time_sync(&mut self) -> TimeSync {
-        self.time_sync_sequence += 1;
+    fn increment_time_sync_sequence(&mut self) -> u64 {
+        let time_sync_sequence = self.time_sync_sequence;
+        self.time_sync_sequence =
+            if time_sync_sequence == u64::MAX { 0 } else { time_sync_sequence + 1 };
+        return time_sync_sequence;
+    }
 
+    pub fn new_time_sync(&mut self) -> TimeSync {
         TimeSync {
             mode: 0,
 
-            sequence: self.time_sync_sequence,
+            sequence: self.increment_time_sync_sequence(),
             client_time: util::get_timestamp_us(),
 
             packets_lost_total: self.packets_lost_total,

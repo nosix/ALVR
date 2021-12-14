@@ -101,12 +101,9 @@ class AlvrClient(
 
         mDecoder = Decoder(
             mCoroutineContext,
-            onInputBufferAvailable = { inputBuffer ->
-                mNativeApi.notifyAvailableInputBuffer(inputBuffer)
-            },
-            onOutputBufferAvailable = { frameIndex ->
-                mNativeApi.notifyAvailableOutputBuffer(frameIndex)
-            }
+            onInputBufferAvailable = mNativeApi::onInputBufferAvailable,
+            onOutputBufferAvailable = mNativeApi::onOutputBufferAvailable,
+            onRendered = mNativeApi::onRendered
         )
 
         owner.lifecycleScope.launch(mCoroutineContext) {

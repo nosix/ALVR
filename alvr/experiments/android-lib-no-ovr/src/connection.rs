@@ -46,7 +46,9 @@ const TRACKING_INTERVAL: f32 = 1. / 360.;
 // const CLEANUP_PAUSE: Duration = Duration::from_millis(500);
 
 static MAYBE_RUNTIME: Lazy<Mutex<Option<Runtime>>> = Lazy::new(|| Mutex::new(None));
+// TODO If you can delete it, delete it
 static MAYBE_LEGACY_SENDER: Lazy<Mutex<Option<tmpsc::UnboundedSender<Vec<u8>>>>> = Lazy::new(|| Mutex::new(None));
+static MAYBE_RENDERED_SENDER: Lazy<Mutex<Option<tmpsc::UnboundedSender<u64>>>> = Lazy::new(|| Mutex::new(None));
 static MAYBE_OBSERVER: Lazy<Mutex<Option<Box<dyn ConnectionObserver>>>> = Lazy::new(|| Mutex::new(None));
 static IDR_REQUEST_NOTIFIER: Lazy<Notify> = Lazy::new(|| Notify::new());
 
@@ -254,6 +256,10 @@ async fn connection_pipeline(
         control_sender,
     );
 
+    let (rendered_sender, rendered_receiver) = tmpsc::unbounded_channel();
+    *MAYBE_RENDERED_SENDER.lock() = Some(rendered_sender);
+
+    let time_sync_loop = time_sync_loop(rendered_receiver);
     let tracking_loop = tracking_loop();
     let playspace_sync_loop = playspace_sync_loop(control_send_data_sender.clone());
     let keepalive_sender_loop = keepalive_sender_loop(control_send_data_sender.clone());
@@ -285,6 +291,7 @@ async fn connection_pipeline(
         },
         res = spawn_cancelable(game_audio_loop) => trace_err!(res),
         res = spawn_cancelable(microphone_loop) => trace_err!(res),
+        res = spawn_cancelable(time_sync_loop) => trace_err!(res),
         res = spawn_cancelable(tracking_loop) => trace_err!(res),
         res = spawn_cancelable(playspace_sync_loop) => trace_err!(res),
         res = spawn_cancelable(legacy_send_loop) => trace_err!(res),
@@ -408,6 +415,24 @@ async fn control_send_loop(
 ) -> StrResult {
     while let Some(packet) = control_send_data_receiver.recv().await {
         trace_err!(control_sender.send(&packet).await)?;
+    }
+    Ok(())
+}
+
+async fn time_sync_loop(
+    mut rendered_receiver: tmpsc::UnboundedReceiver<u64>
+) -> StrResult {
+    while let Some(frame_index) = rendered_receiver.recv().await {
+        let mut latency_controller = latency_controller::INSTANCE.lock();
+        latency_controller.rendered1(frame_index);
+        latency_controller.rendered2(frame_index);
+        if latency_controller.submit(frame_index) {
+            // TimeSync here might be an issue but it seems to work fine
+            info!("submit success");
+            let time_sync = latency_controller.new_time_sync();
+            info!("new_time_sync success");
+            legacy_send(time_sync.into());
+        }
     }
     Ok(())
 }
@@ -550,6 +575,12 @@ fn microphone_loop<'a>(
 fn legacy_send(message: Vec<u8>) {
     if let Some(sender) = &*MAYBE_LEGACY_SENDER.lock() {
         sender.send(message).ok();
+    }
+}
+
+pub fn on_rendered(frame_index: u64) {
+    if let Some(sender) = &*MAYBE_RENDERED_SENDER.lock() {
+        sender.send(frame_index).ok();
     }
 }
 

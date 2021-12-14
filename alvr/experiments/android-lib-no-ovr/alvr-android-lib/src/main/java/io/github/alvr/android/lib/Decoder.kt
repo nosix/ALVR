@@ -20,14 +20,15 @@ import kotlin.coroutines.coroutineContext
 class Decoder(
     context: CoroutineContext,
     private val onInputBufferAvailable: (InputBuffer) -> Unit,
-    private val onOutputBufferAvailable: (Long) -> Unit
+    private val onOutputBufferAvailable: (Long) -> Unit,
+    private val onRendered: (Long) -> Unit
 ) {
     companion object {
         private val TAG = Decoder::class.simpleName
     }
 
     private val mScope = CoroutineScope(context)
-    private val mUpdatedSignalChannel = Channel<Unit>()
+    private val mUpdatedSignalChannel = Channel<Long>() // FIXME Do not create a Long instance
     private var mDecodeJob: Job? = null
 
     fun start(
@@ -80,8 +81,9 @@ class Decoder(
         try {
             val renderer = Renderer(surface, width, height)
             while (coroutineContext.isActive) {
-                mUpdatedSignalChannel.receive()
+                val frameIndex = mUpdatedSignalChannel.receive()
                 renderer.render(frameSurface)
+                onRendered(frameIndex)
             }
         } finally {
             codec.stop()
@@ -112,7 +114,7 @@ class Decoder(
             val frameIndex = mFrameMap.remove(info.presentationTimeUs)
             if (frameIndex != 0L) {
                 this@Decoder.onOutputBufferAvailable(frameIndex)
-                mUpdatedSignalChannel.trySend(Unit)
+                mUpdatedSignalChannel.trySend(frameIndex)
             } else {
                 Log.w(TAG, "The frameIndex corresponding to presentationTimeUs was not found.")
             }

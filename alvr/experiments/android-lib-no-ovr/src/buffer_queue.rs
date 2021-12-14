@@ -61,10 +61,6 @@ pub fn push_nal(nal: Nal) {
     });
 }
 
-pub fn on_output_buffer_available(frame_index: i64) {
-    latency_controller::INSTANCE.lock().decoder_output(frame_index as u64);
-}
-
 pub fn buffer_coordination_loop() -> task::JoinHandle<StrResult> {
     let (input_buffer_sender, input_buffer_receiver) = smpsc::channel();
     let (nal_sender, nal_receiver) = smpsc::sync_channel(QUEUE_LIMIT);

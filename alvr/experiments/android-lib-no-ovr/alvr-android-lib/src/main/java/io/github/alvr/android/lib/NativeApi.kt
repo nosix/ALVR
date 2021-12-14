@@ -24,6 +24,7 @@ class NativeApi {
     external fun onStart()
     external fun onStop()
 
-    external fun notifyAvailableInputBuffer(buffer: InputBuffer)
-    external fun notifyAvailableOutputBuffer(frameIndex: Long)
+    external fun onInputBufferAvailable(buffer: InputBuffer)
+    external fun onOutputBufferAvailable(frameIndex: Long)
+    external fun onRendered(frameIndex: Long)
 }

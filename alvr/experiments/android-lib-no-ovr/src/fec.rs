@@ -69,6 +69,10 @@ impl FecQueue {
         let fec_index = header.fec_index as usize;
 
         if self.current_frame.video_frame_index != header.video_frame_index {
+            if self.current_frame.tracking_frame_index == header.tracking_frame_index {
+                // FIXME This causes problems with latency_controller
+                warn!("tracking_frame_index has not been changed.");
+            }
             // Check previous frame
             if !self.recovered {
                 debug!("Previous frame cannot be recovered.");

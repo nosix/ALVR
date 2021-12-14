@@ -116,7 +116,7 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onStop(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_notifyAvailableInputBuffer(
+pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onInputBufferAvailable(
     env: JNIEnv,
     _: JObject,
     buffer: JObject
@@ -128,12 +128,21 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_notifyAvailable
 }
 
 #[no_mangle]
-pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_notifyAvailableOutputBuffer(
+pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onOutputBufferAvailable(
     _: JNIEnv,
     _: JObject,
     frame_index: i64
 ) {
-    buffer_queue::on_output_buffer_available(frame_index);
+    latency_controller::INSTANCE.lock().decoder_output(frame_index as u64);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onRendered(
+    _: JNIEnv,
+    _: JObject,
+    frame_index: i64
+) {
+    connection::on_rendered(frame_index as u64);
 }
 
 fn clone_identity(identity: &PrivateIdentity) -> PrivateIdentity {
