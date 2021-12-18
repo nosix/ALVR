@@ -586,48 +586,46 @@ pub fn on_rendered(frame_index: u64) {
 mod tests {
     use crate::device::Device;
     use alvr_sockets::PrivateIdentity;
+    use log::LevelFilter;
     use once_cell::sync::Lazy;
     use simple_logger::SimpleLogger;
     use std::{thread, time::Duration};
-    use log::LevelFilter;
     use tokio;
 
-    static DEVICE: Lazy<Device> = Lazy::new(|| Device::new("Test Device"));
+    static DEVICE: Lazy<Device> = Lazy::new(|| Device {
+        name: "Test Device".into(),
+        recommended_eye_width: 1920,
+        recommended_eye_height: 1080,
+        available_refresh_rates: vec![60.0],
+        preferred_refresh_rate: 60.0
+    });
 
-    fn clone_identity(identity: &PrivateIdentity) -> PrivateIdentity {
-        PrivateIdentity {
-            hostname: identity.hostname.clone(),
-            certificate_pem: identity.certificate_pem.clone(),
-            key_pem: identity.key_pem.clone(),
-        }
-    }
+    static IDENTITY: Lazy<PrivateIdentity> = Lazy::new(||
+        alvr_sockets::create_identity(Some("test.client.alvr".into())).unwrap()
+    );
 
     #[test]
     #[ignore]
     /// Please specify -- --ignored --nocapture to check the log.
     fn run() {
         SimpleLogger::new().with_level(LevelFilter::Info).init().unwrap();
-        let identity =
-            alvr_sockets::create_identity(Some("test.client.alvr".into())).unwrap();
         let runtime = tokio::runtime::Runtime::new().unwrap();
-        let future = super::connect(&DEVICE, identity).unwrap().unwrap();
+        let future = super::connect(&DEVICE, &IDENTITY).unwrap().unwrap();
         runtime.block_on(future).unwrap();
     }
 
     #[test]
     fn connect_and_disconnect() {
         SimpleLogger::new().with_level(LevelFilter::Info).init().unwrap();
-        let identity =
-            alvr_sockets::create_identity(Some("test.client.alvr".into())).unwrap();
         {
-            super::connect(&DEVICE, clone_identity(&identity)).unwrap();
-            super::connect(&DEVICE, clone_identity(&identity)).unwrap();
+            super::connect(&DEVICE, &IDENTITY).unwrap();
+            super::connect(&DEVICE, &IDENTITY).unwrap();
             thread::sleep(Duration::from_secs(3));
             super::disconnect();
             super::disconnect();
         }
         {
-            super::connect(&DEVICE, clone_identity(&identity)).unwrap();
+            super::connect(&DEVICE, &IDENTITY).unwrap();
             thread::sleep(Duration::from_secs(5));
             super::disconnect();
         }
