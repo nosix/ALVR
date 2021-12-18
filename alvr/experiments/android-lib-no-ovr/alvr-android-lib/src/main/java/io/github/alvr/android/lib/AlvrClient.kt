@@ -37,6 +37,7 @@ class AlvrClient(
         }
 
     private var mSharedPreferences: SharedPreferences? = null
+    private var mDataProducer: DeviceDataProducer? = null
 
     private lateinit var mNativeApi: NativeApi
     private lateinit var mDecoder: Decoder
@@ -47,6 +48,10 @@ class AlvrClient(
 
     fun attachPreference(shardPref: SharedPreferences) {
         mSharedPreferences = shardPref
+    }
+
+    fun attachDeviceDataProducer(producer: DeviceDataProducer) {
+        mDataProducer = producer
     }
 
     fun attachScreen(surface: Surface, width: Int, height: Int) {
@@ -70,6 +75,9 @@ class AlvrClient(
         val shardPref = requireNotNull(mSharedPreferences) {
             "Call the attachPreference method before onCreate."
         }
+        val dataProducer = requireNotNull(mDataProducer) {
+            "Call the attachDeviceDataProducer method before onCreate."
+        }
 
         val preferences = shardPref.get().also {
             Log.i(TAG, "load $it")
@@ -80,6 +88,7 @@ class AlvrClient(
             shardPref.set(preferences)
             Log.i(TAG, "save $preferences")
         }
+        dataProducer.attach(mNativeApi)
         mNativeApi.setConnectionObserver(ConnectionObserver { event ->
             when (event) {
                 is ConnectionEvent.ServerFound -> {

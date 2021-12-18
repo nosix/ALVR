@@ -7,6 +7,7 @@ import android.util.Log
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import io.github.alvr.android.lib.AlvrClient
+import io.github.alvr.android.lib.DeviceSettings
 import kotlinx.coroutines.asCoroutineDispatcher
 import java.util.concurrent.Executors
 
@@ -20,11 +21,22 @@ class MainActivity : AppCompatActivity() {
         Executors.newSingleThreadExecutor().asCoroutineDispatcher()
     )
 
+    private val mDataProducer = DeviceDataProducerImpl(
+        DeviceSettings(
+            name = "Android ALVR",
+            recommendedEyeWidth = 1920,
+            recommendedEyeHeight = 1080,
+            availableRefreshRates = floatArrayOf(60.0f),
+            preferredRefreshRate = 60.0f
+        )
+    )
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
         mAlvrClient.attachPreference(getPreferences(Context.MODE_PRIVATE))
+        mAlvrClient.attachDeviceDataProducer(mDataProducer)
         lifecycle.addObserver(mAlvrClient)
     }
 

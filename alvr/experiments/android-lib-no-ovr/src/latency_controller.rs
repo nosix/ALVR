@@ -8,6 +8,7 @@ use parking_lot::Mutex;
 
 const MAX_FRAMES: usize = 1024;
 
+// TODO change to OnceCell
 pub static INSTANCE: Lazy<Mutex<LatencyController>> =
     Lazy::new(|| Mutex::new(LatencyController::new()));
 

@@ -1,7 +1,9 @@
 use crate::{
     common::ConnectionEvent,
     connection::ConnectionObserver,
+    device::Device,
     nal::Nal,
+    store::DeviceDataProducer,
 };
 use alvr_common::prelude::*;
 use bytes::Bytes;
@@ -11,7 +13,49 @@ use jni::{
 };
 use serde_json;
 
+const INT_TYPE: &'static str = "I";
+const FLOAT_TYPE: &'static str = "F";
+const FLOAT_ARRAY_TYPE: &'static str = "[F";
 const STRING_TYPE: &'static str = "Ljava/lang/String;";
+
+fn get_int_field(env: &JNIEnv, object: JObject, field_name: &str) -> i32 {
+    match env.get_field(object, field_name, INT_TYPE).unwrap() {
+        JValue::Int(value) => value,
+        _ => 0
+    }
+}
+
+fn get_float_field(env: &JNIEnv, object: JObject, field_name: &str) -> f32 {
+    match env.get_field(object, field_name, FLOAT_TYPE).unwrap() {
+        JValue::Float(value) => value,
+        _ => 0.0
+    }
+}
+
+fn get_string_field(env: &JNIEnv, object: JObject, field_name: &str) -> String {
+    match env.get_field(object, field_name, STRING_TYPE).unwrap() {
+        JValue::Object(object) => {
+            env.get_string(JString::from(object)).unwrap().into()
+        }
+        _ => "".into()
+    }
+}
+
+fn get_float_array_field(env: &JNIEnv, object: JObject, field_name: &str) -> Vec<f32> {
+    match env.get_field(object, field_name, FLOAT_ARRAY_TYPE).unwrap() {
+        JValue::Object(object) => {
+            let length = env.get_array_length(*object).unwrap();
+            let mut buffer = vec![0.0f32; length as usize];
+            env.get_float_array_region(
+                *object,
+                0,
+                buffer.as_mut_slice(),
+            ).unwrap();
+            buffer
+        }
+        _ => Vec::new()
+    }
+}
 
 pub struct Preferences<'a> {
     env: JNIEnv<'a>,
@@ -19,7 +63,7 @@ pub struct Preferences<'a> {
 }
 
 impl<'a> Preferences<'a> {
-    pub fn new(env: JNIEnv<'a>, object: JObject<'a>) -> Preferences<'a> {
+    pub fn new(env: JNIEnv<'a>, object: JObject<'a>) -> Self {
         Preferences {
             env,
             object,
@@ -61,12 +105,59 @@ impl<'a> Preferences<'a> {
         self.env.set_field(self.object, field_name, STRING_TYPE, j_string.into()).unwrap()
     }
 
+    // TODO remove this
     fn get_string_field(&self, field_name: &str) -> String {
         match self.env.get_field(self.object, field_name, STRING_TYPE).unwrap() {
             JValue::Object(object) => {
                 self.env.get_string(JString::from(object)).unwrap().into()
             }
             _ => "".into()
+        }
+    }
+}
+
+pub struct JDeviceSettings<'a> {
+    env: JNIEnv<'a>,
+    object: JObject<'a>,
+}
+
+impl<'a> JDeviceSettings<'a> {
+    pub fn new(env: JNIEnv<'a>, object: JObject<'a>) -> Self {
+        JDeviceSettings {
+            env,
+            object,
+        }
+    }
+
+    pub fn get_name(&self) -> String {
+        get_string_field(&self.env, self.object, "name")
+    }
+
+    pub fn get_recommended_eye_width(&self) -> u32 {
+        get_int_field(&self.env, self.object, "recommendedEyeWidth") as u32
+    }
+
+    pub fn get_recommended_eye_height(&self) -> u32 {
+        get_int_field(&self.env, self.object, "recommendedEyeHeight") as u32
+    }
+
+    pub fn get_available_refresh_rates(&self) -> Vec<f32> {
+        get_float_array_field(&self.env, self.object, "availableRefreshRates")
+    }
+
+    pub fn get_preferred_refresh_rate(&self) -> f32 {
+        get_float_field(&self.env, self.object, "preferredRefreshRate")
+    }
+}
+
+impl From<JDeviceSettings<'_>> for Device {
+    fn from(settings: JDeviceSettings) -> Self {
+        Device {
+            name: settings.get_name(),
+            recommended_eye_width: settings.get_recommended_eye_width(),
+            recommended_eye_height: settings.get_recommended_eye_height(),
+            available_refresh_rates: settings.get_available_refresh_rates(),
+            preferred_refresh_rate: settings.get_preferred_refresh_rate(),
         }
     }
 }
@@ -80,14 +171,14 @@ unsafe impl Sync for InputBuffer {}
 unsafe impl Send for InputBuffer {}
 
 impl InputBuffer {
-    pub fn new(env: JNIEnv, object: JObject) -> StrResult<InputBuffer> {
+    pub fn new(env: JNIEnv, object: JObject) -> StrResult<Self> {
         Ok(InputBuffer {
             object: trace_err!(env.new_global_ref(object))?,
         })
     }
 
     pub fn queue_config(&self, env: &JNIEnv, nal: Nal) -> StrResult {
-        info!(
+        debug!(
             "queue_config {:?} frame_len={} frame_index={}",
             nal.nal_type, nal.frame_buffer.len(), nal.frame_index
         );
@@ -99,7 +190,7 @@ impl InputBuffer {
     }
 
     pub fn queue(&self, env: &JNIEnv, nal: Nal) -> StrResult {
-        info!(
+        debug!(
             "queue {:?} frame_len={} frame_index={}",
             nal.nal_type, nal.frame_buffer.len(), nal.frame_index
         );
@@ -133,7 +224,7 @@ pub struct JConnectionObserver {
 }
 
 impl JConnectionObserver {
-    pub fn new(env: &JNIEnv, object: JObject) -> StrResult<JConnectionObserver> {
+    pub fn new(env: &JNIEnv, object: JObject) -> StrResult<Self> {
         Ok(JConnectionObserver {
             vm: trace_err!(env.get_java_vm())?,
             object: trace_err!(env.new_global_ref(object))?,
@@ -148,6 +239,32 @@ impl ConnectionObserver for JConnectionObserver {
         trace_err!(env.call_method(
             &self.object, "onEventOccurred", "(Ljava/lang/String;)V", &[
                 trace_err!(env.new_string(json_data))?.into()
+            ]
+        ))?;
+        Ok(())
+    }
+}
+
+pub struct JDeviceDataProducer {
+    vm: JavaVM,
+    object: GlobalRef,
+}
+
+impl JDeviceDataProducer {
+    pub fn new(env: &JNIEnv, object: JObject) -> StrResult<Self> {
+        Ok(JDeviceDataProducer {
+            vm: trace_err!(env.get_java_vm())?,
+            object: trace_err!(env.new_global_ref(object))?,
+        })
+    }
+}
+
+impl DeviceDataProducer for JDeviceDataProducer {
+    fn request(&self, data_kind: u8) -> StrResult {
+        let env = trace_err!(self.vm.attach_current_thread_permanently())?;
+        trace_err!(env.call_method(
+            &self.object, "request", "(B)V", &[
+                data_kind.into()
             ]
         ))?;
         Ok(())

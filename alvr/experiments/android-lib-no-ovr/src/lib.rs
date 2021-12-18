@@ -10,25 +10,22 @@ mod legacy_packets;
 mod legacy_stream;
 mod logging_backend;
 mod nal;
+mod store;
 mod unity;
 mod util;
 
-use crate::{
-    device::Device,
-    jvm::{JConnectionObserver, Preferences},
+use crate::jvm::{
+    InputBuffer,
+    JConnectionObserver, JDeviceDataProducer, JDeviceSettings,
+    Preferences,
 };
 use alvr_common::prelude::*;
 use alvr_sockets::PrivateIdentity;
 use jni::{
-    JNIEnv, objects::JObject,
+    JNIEnv,
+    objects::JObject,
     sys::jboolean,
 };
-use once_cell::sync::Lazy;
-use parking_lot::Mutex;
-use crate::jvm::InputBuffer;
-
-static DEVICE: Lazy<Device> = Lazy::new(|| Device::new("Android ALVR"));
-static MAYBE_IDENTITY: Lazy<Mutex<Option<PrivateIdentity>>> = Lazy::new(|| Mutex::new(None));
 
 /// Execute the $b with the return value $t, call 'show_err' and return Option<$t>.
 /// The default of $t is ().
@@ -62,14 +59,38 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_initPreferences
             is_changed = true;
         };
 
-        *MAYBE_IDENTITY.lock() = Some(PrivateIdentity {
+        let identity = PrivateIdentity {
             hostname: preferences.get_hostname().into(),
             certificate_pem: preferences.get_certificate_pem().into(),
             key_pem: preferences.get_key_pem().into()
-        });
+        };
+        trace_err!(store::set_identity(identity))?;
 
         is_changed
     }, bool).unwrap_or(false).into()
+}
+
+#[no_mangle]
+pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_setDeviceDataProducer(
+    env: JNIEnv,
+    _: JObject,
+    request: JObject,
+) {
+    catch_err!({
+        let wrapper = trace_err!(JDeviceDataProducer::new(&env, request))?;
+        trace_err!(store::set_data_request(Box::new(wrapper)))?;
+    });
+}
+
+#[no_mangle]
+pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_setDeviceSettings(
+    env: JNIEnv,
+    _: JObject,
+    settings: JObject,
+) {
+    catch_err!({
+        trace_err!(store::set_device(JDeviceSettings::new(env, settings).into()))?;
+    });
 }
 
 #[no_mangle]
@@ -89,7 +110,10 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onCreate(
     _: JNIEnv,
     _: JObject,
 ) {
-    logging_backend::init_logging();
+    catch_err!({
+        logging_backend::init_logging();
+        trace_err!(store::request_data(1))?; // TODO change enum
+    });
 }
 
 #[no_mangle]
@@ -101,9 +125,9 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onStart(
         let vm = trace_err!(env.get_java_vm())?;
         buffer_queue::set_vm(vm);
 
-        let identity = clone_identity(MAYBE_IDENTITY.lock().as_ref()
-            .ok_or("Identity has not been initialized. Call initPreferences before onStart.")?);
-        trace_err!(connection::connect(&DEVICE, identity))?;
+        let device = trace_err!(store::get_device())?;
+        let identity = trace_err!(store::get_identity())?;
+        trace_err!(connection::connect(device, identity))?;
     });
 }
 
@@ -119,7 +143,7 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onStop(
 pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onInputBufferAvailable(
     env: JNIEnv,
     _: JObject,
-    buffer: JObject
+    buffer: JObject,
 ) {
     catch_err!({
         let input_buffer = InputBuffer::new(env, buffer)?;
@@ -131,7 +155,7 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onInputBufferAv
 pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onOutputBufferAvailable(
     _: JNIEnv,
     _: JObject,
-    frame_index: i64
+    frame_index: i64,
 ) {
     latency_controller::INSTANCE.lock().decoder_output(frame_index as u64);
 }
@@ -140,15 +164,7 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onOutputBufferA
 pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onRendered(
     _: JNIEnv,
     _: JObject,
-    frame_index: i64
+    frame_index: i64,
 ) {
     connection::on_rendered(frame_index as u64);
-}
-
-fn clone_identity(identity: &PrivateIdentity) -> PrivateIdentity {
-    PrivateIdentity {
-        hostname: identity.hostname.clone(),
-        certificate_pem: identity.certificate_pem.clone(),
-        key_pem: identity.key_pem.clone()
-    }
 }

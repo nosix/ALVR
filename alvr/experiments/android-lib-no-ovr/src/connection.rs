@@ -62,7 +62,7 @@ pub fn set_observer(observer: Box<dyn ConnectionObserver>) {
 
 pub fn connect(
     device: &'static Device,
-    private_identity: PrivateIdentity,
+    private_identity: &'static PrivateIdentity,
 ) -> StrResult<Option<JoinHandle<()>>> {
     let mut maybe_runtime = MAYBE_RUNTIME.lock();
 
@@ -103,7 +103,7 @@ fn notify_event(event: ConnectionEvent) {
 
 async fn connection_lifecycle_loop(
     device: &'static Device,
-    identity: PrivateIdentity,
+    identity: &'static PrivateIdentity,
 ) {
     notify_event(ConnectionEvent::Initial);
 
@@ -136,7 +136,7 @@ async fn connection_pipeline(
     let handshake_packet = ClientHandshakePacket {
         alvr_name: ALVR_NAME.into(),
         version: ALVR_VERSION.clone(),
-        device_name: device.get_name().into(),
+        device_name: device.name.clone(),
         hostname: hostname.into(),
         reserved1: "".into(),
         reserved2: "".into(),
@@ -153,10 +153,10 @@ async fn connection_pipeline(
     notify_event(ConnectionEvent::ServerFound { ipaddr: server_ip });
 
     let headset_info = HeadsetInfoPacket {
-        recommended_eye_width: device.get_recommended_eye_width(),
-        recommended_eye_height: device.get_recommended_eye_height(),
-        available_refresh_rates: device.get_available_refresh_rates().to_vec(),
-        preferred_refresh_rate: device.get_preferred_refresh_rate(),
+        recommended_eye_width: device.recommended_eye_width,
+        recommended_eye_height: device.recommended_eye_height,
+        available_refresh_rates: device.available_refresh_rates.to_vec(),
+        preferred_refresh_rate: device.preferred_refresh_rate,
         reserved: format!("{}", *ALVR_VERSION),
     };
 
@@ -428,9 +428,7 @@ async fn time_sync_loop(
         latency_controller.rendered2(frame_index);
         if latency_controller.submit(frame_index) {
             // TimeSync here might be an issue but it seems to work fine
-            info!("submit success");
             let time_sync = latency_controller.new_time_sync();
-            info!("new_time_sync success");
             legacy_send(time_sync.into());
         }
     }
