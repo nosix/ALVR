@@ -81,7 +81,7 @@ impl<'a> Preferences<'a> {
     }
 
     pub fn get_hostname(&self) -> String {
-        self.get_string_field("hostname")
+        get_string_field(&self.env, self.object, "hostname")
     }
 
     pub fn set_certificate_pem(&self, value: &str) {
@@ -89,7 +89,7 @@ impl<'a> Preferences<'a> {
     }
 
     pub fn get_certificate_pem(&self) -> String {
-        self.get_string_field("certificate_pem")
+        get_string_field(&self.env, self.object, "certificate_pem")
     }
 
     pub fn set_key_pem(&self, value: &str) {
@@ -97,22 +97,12 @@ impl<'a> Preferences<'a> {
     }
 
     pub fn get_key_pem(&self) -> String {
-        self.get_string_field("key_pem")
+        get_string_field(&self.env, self.object, "key_pem")
     }
 
     fn set_string_field(&self, field_name: &str, value: &str) {
         let j_string = self.env.new_string(value).unwrap();
         self.env.set_field(self.object, field_name, STRING_TYPE, j_string.into()).unwrap()
-    }
-
-    // TODO remove this
-    fn get_string_field(&self, field_name: &str) -> String {
-        match self.env.get_field(self.object, field_name, STRING_TYPE).unwrap() {
-            JValue::Object(object) => {
-                self.env.get_string(JString::from(object)).unwrap().into()
-            }
-            _ => "".into()
-        }
     }
 }
 
