@@ -250,7 +250,7 @@ impl JDeviceDataProducer {
 }
 
 impl DeviceDataProducer for JDeviceDataProducer {
-    fn request(&self, data_kind: u8) -> StrResult {
+    fn request(&self, data_kind: i8) -> StrResult {
         let env = trace_err!(self.vm.attach_current_thread_permanently())?;
         trace_err!(env.call_method(
             &self.object, "request", "(B)V", &[

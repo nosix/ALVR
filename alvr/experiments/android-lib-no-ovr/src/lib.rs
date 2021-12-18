@@ -22,23 +22,16 @@ use crate::jvm::{
 use alvr_common::prelude::*;
 use alvr_sockets::PrivateIdentity;
 use jni::{
-    JNIEnv,
+    JavaVM, JNIEnv, JNIVersion,
     objects::JObject,
-    sys::jboolean,
+    sys::{jboolean, jint},
 };
+use std::ffi::c_void;
 
-/// Execute the $b with the return value $t, call 'show_err' and return Option<$t>.
-/// The default of $t is ().
-macro_rules! catch_err {
-    ($b:block,$t:ty) => {{
-        let s = || -> StrResult<$t> {
-            Ok($b)
-        };
-        show_err(s())
-    }};
-    ($b:block) => {
-        catch_err!($b,())
-    };
+#[no_mangle]
+pub unsafe extern "system" fn JNI_OnLoad(_vm: *const JavaVM, _reserved: *const c_void) -> jint {
+    logging_backend::init_logging();
+    JNIVersion::V6.into()
 }
 
 #[no_mangle]
@@ -78,7 +71,7 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_setDeviceDataPr
 ) {
     catch_err!({
         let wrapper = trace_err!(JDeviceDataProducer::new(&env, request))?;
-        trace_err!(store::set_data_request(Box::new(wrapper)))?;
+        trace_err!(store::set_data_producer(Box::new(wrapper)))?;
     });
 }
 
@@ -111,7 +104,6 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onCreate(
     _: JObject,
 ) {
     catch_err!({
-        logging_backend::init_logging();
         trace_err!(store::request_data(1))?; // TODO change enum
     });
 }

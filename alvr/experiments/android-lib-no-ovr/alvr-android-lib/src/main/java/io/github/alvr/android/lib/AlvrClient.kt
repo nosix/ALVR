@@ -75,9 +75,6 @@ class AlvrClient(
         val shardPref = requireNotNull(mSharedPreferences) {
             "Call the attachPreference method before onCreate."
         }
-        val dataProducer = requireNotNull(mDataProducer) {
-            "Call the attachDeviceDataProducer method before onCreate."
-        }
 
         val preferences = shardPref.get().also {
             Log.i(TAG, "load $it")
@@ -88,7 +85,7 @@ class AlvrClient(
             shardPref.set(preferences)
             Log.i(TAG, "save $preferences")
         }
-        dataProducer.attach(mNativeApi)
+        mDataProducer?.attach(mNativeApi)
         mNativeApi.setConnectionObserver(ConnectionObserver { event ->
             when (event) {
                 is ConnectionEvent.ServerFound -> {
