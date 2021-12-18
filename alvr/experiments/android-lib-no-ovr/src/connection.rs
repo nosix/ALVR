@@ -46,8 +46,6 @@ const TRACKING_INTERVAL: f32 = 1. / 360.;
 // const CLEANUP_PAUSE: Duration = Duration::from_millis(500);
 
 static MAYBE_RUNTIME: Lazy<Mutex<Option<Runtime>>> = Lazy::new(|| Mutex::new(None));
-// TODO If you can delete it, delete it
-static MAYBE_LEGACY_SENDER: Lazy<Mutex<Option<tmpsc::UnboundedSender<Vec<u8>>>>> = Lazy::new(|| Mutex::new(None));
 static MAYBE_RENDERED_SENDER: Lazy<Mutex<Option<tmpsc::UnboundedSender<u64>>>> = Lazy::new(|| Mutex::new(None));
 static MAYBE_OBSERVER: Lazy<Mutex<Option<Box<dyn ConnectionObserver>>>> = Lazy::new(|| Mutex::new(None));
 static IDR_REQUEST_NOTIFIER: Lazy<Notify> = Lazy::new(|| Notify::new());
@@ -236,7 +234,6 @@ async fn connection_pipeline(
 
     // legacy_send_data_sender is used by the sync context.
     let (legacy_send_data_sender, legacy_send_data_receiver) = tmpsc::unbounded_channel();
-    *MAYBE_LEGACY_SENDER.lock() = Some(legacy_send_data_sender);
 
     let legacy_send_loop = legacy_send_loop(
         legacy_send_data_receiver,
@@ -244,6 +241,7 @@ async fn connection_pipeline(
     );
 
     let legacy_receive_loop = legacy_receive_loop(
+        legacy_send_data_sender.clone(),
         stream_socket.subscribe_to_stream::<(), LEGACY>().await?,
         settings.video.codec,
         settings.connection.enable_fec,
@@ -259,8 +257,8 @@ async fn connection_pipeline(
     let (rendered_sender, rendered_receiver) = tmpsc::unbounded_channel();
     *MAYBE_RENDERED_SENDER.lock() = Some(rendered_sender);
 
-    let time_sync_loop = time_sync_loop(rendered_receiver);
-    let tracking_loop = tracking_loop();
+    let time_sync_loop = time_sync_loop(rendered_receiver, legacy_send_data_sender.clone());
+    let tracking_loop = tracking_loop(legacy_send_data_sender.clone());
     let playspace_sync_loop = playspace_sync_loop(control_send_data_sender.clone());
     let keepalive_sender_loop = keepalive_sender_loop(control_send_data_sender.clone());
 
@@ -375,16 +373,20 @@ async fn legacy_send_loop(
 }
 
 async fn legacy_receive_loop(
+    legacy_send_data_sender: tmpsc::UnboundedSender<Vec<u8>>,
     mut socket_receiver: StreamReceiver<(), LEGACY>,
     codec: CodecType,
     enable_fec: bool,
 ) -> StrResult {
+    let legacy_send = |data: Vec<u8>|
+        legacy_send_data_sender.send(data)
+            .unwrap_or_else(|e| error!("{}", e));
     let push_nal = buffer_queue::push_nal;
     let mut handler = StreamHandler::new(enable_fec, codec.into(), push_nal, legacy_send);
     let mut idr_request_deadline = None;
 
-    while let packet = socket_receiver.recv().await? {
-        let data = packet.buffer;
+    loop {
+        let data = socket_receiver.recv().await?.buffer;
 
         // Send again IDR packet every 2s in case it is missed
         // (due to dropped burst of packets at the start of the stream or otherwise).
@@ -405,8 +407,6 @@ async fn legacy_receive_loop(
     }
 
     // crate::IS_CONNECTED.store(false, Ordering::Relaxed);
-
-    Ok(())
 }
 
 async fn control_send_loop(
@@ -420,7 +420,8 @@ async fn control_send_loop(
 }
 
 async fn time_sync_loop(
-    mut rendered_receiver: tmpsc::UnboundedReceiver<u64>
+    mut rendered_receiver: tmpsc::UnboundedReceiver<u64>,
+    legacy_send_data_sender: tmpsc::UnboundedSender<Vec<u8>>
 ) -> StrResult {
     while let Some(frame_index) = rendered_receiver.recv().await {
         let mut latency_controller = latency_controller::INSTANCE.lock();
@@ -429,13 +430,15 @@ async fn time_sync_loop(
         if latency_controller.submit(frame_index) {
             // TimeSync here might be an issue but it seems to work fine
             let time_sync = latency_controller.new_time_sync();
-            legacy_send(time_sync.into());
+            trace_err!(legacy_send_data_sender.send(time_sync.into()))?;
         }
     }
     Ok(())
 }
 
-async fn tracking_loop() -> StrResult {
+async fn tracking_loop(
+    legacy_send_data_sender: tmpsc::UnboundedSender<Vec<u8>>
+) -> StrResult {
     let tracking_interval = Duration::from_secs_f32(TRACKING_INTERVAL);
     let mut deadline = Instant::now();
     let mut frame_index = 0;
@@ -456,7 +459,7 @@ async fn tracking_loop() -> StrResult {
             ..Default::default()
         };
         latency_controller::INSTANCE.lock().tracking(frame_index);
-        legacy_send(tracking_info.into());
+        trace_err!(legacy_send_data_sender.send(tracking_info.into()))?;
 
         deadline += tracking_interval;
         time::sleep_until(deadline).await;
@@ -568,12 +571,6 @@ fn microphone_loop<'a>(
         ));
     }
     Box::pin(audio::record_audio_loop_nop(microphone_sender))
-}
-
-fn legacy_send(message: Vec<u8>) {
-    if let Some(sender) = &*MAYBE_LEGACY_SENDER.lock() {
-        sender.send(message).ok();
-    }
 }
 
 pub fn on_rendered(frame_index: u64) {
