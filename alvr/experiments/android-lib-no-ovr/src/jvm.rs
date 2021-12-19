@@ -250,13 +250,21 @@ impl JDeviceDataProducer {
 }
 
 impl DeviceDataProducer for JDeviceDataProducer {
-    fn request(&self, data_kind: i8) -> StrResult {
+    fn get_device(&self) -> StrResult<Device> {
         let env = trace_err!(self.vm.attach_current_thread_permanently())?;
-        trace_err!(env.call_method(
-            &self.object, "request", "(B)V", &[
-                data_kind.into()
-            ]
+        let ret = trace_err!(env.call_method(
+            &self.object,
+            "getDeviceSettings",
+            "()Lio/github/alvr/android/lib/DeviceSettings;",
+            &[]
         ))?;
-        Ok(())
+        let device_settings = JDeviceSettings::new(env, ret.l().unwrap());
+        Ok(Device {
+            name: device_settings.get_name(),
+            recommended_eye_width: device_settings.get_recommended_eye_width(),
+            recommended_eye_height: device_settings.get_recommended_eye_height(),
+            available_refresh_rates: device_settings.get_available_refresh_rates(),
+            preferred_refresh_rate: device_settings.get_preferred_refresh_rate()
+        })
     }
 }

@@ -103,7 +103,6 @@ class AlvrClient(
                 else -> Log.i(TAG, event.toString())
             }
         })
-        mNativeApi.onCreate()
 
         mDecoder = Decoder(
             mCoroutineContext,

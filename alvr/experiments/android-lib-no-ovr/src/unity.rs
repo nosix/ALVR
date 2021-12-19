@@ -53,14 +53,25 @@ fn init_context(_event_id: i32) {
     }
 }
 
-struct UniDeviceDataProducer {
-    csharp_func: extern fn(i8),
+#[no_mangle]
+extern "system" fn SetDeviceDataProducer(
+    device_settings_producer: extern fn() -> &'static UniDeviceSettings
+) {
+    catch_err!({
+        trace_err!(store::set_device_data_producer(Box::new(UniDeviceDataProducer {
+            get_device_csharp_func: device_settings_producer
+        })))?;
+    });
 }
 
-impl DeviceDataProducer for UniDeviceDataProducer {
-    fn request(&self, data_kind: i8) -> StrResult {
-        (self.csharp_func)(data_kind);
-        Ok(())
+struct UniDeviceDataProducer<'a> {
+    get_device_csharp_func: extern fn() -> &'a UniDeviceSettings,
+}
+
+impl DeviceDataProducer for UniDeviceDataProducer<'_> {
+    fn get_device(&self) -> StrResult<Device> {
+        let device_settings = (self.get_device_csharp_func)();
+        Ok(device_settings.into())
     }
 }
 
@@ -96,20 +107,4 @@ impl From<&UniDeviceSettings> for Device {
             preferred_refresh_rate: settings.preferred_refresh_rate,
         }
     }
-}
-
-#[no_mangle]
-extern "system" fn SetDeviceDataProducer(producer: extern fn(i8)) {
-    catch_err!({
-        trace_err!(store::set_data_producer(Box::new(UniDeviceDataProducer {
-            csharp_func: producer
-        })))?;
-    });
-}
-
-#[no_mangle]
-extern "system" fn SetDeviceSettings(settings: &UniDeviceSettings) {
-    catch_err!({
-        trace_err!(store::set_device(settings.into()))?;
-    });
 }

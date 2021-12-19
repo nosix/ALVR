@@ -71,18 +71,7 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_setDeviceDataPr
 ) {
     catch_err!({
         let wrapper = trace_err!(JDeviceDataProducer::new(&env, request))?;
-        trace_err!(store::set_data_producer(Box::new(wrapper)))?;
-    });
-}
-
-#[no_mangle]
-pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_setDeviceSettings(
-    env: JNIEnv,
-    _: JObject,
-    settings: JObject,
-) {
-    catch_err!({
-        trace_err!(store::set_device(JDeviceSettings::new(env, settings).into()))?;
+        trace_err!(store::set_device_data_producer(Box::new(wrapper)))?;
     });
 }
 
@@ -95,16 +84,6 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_setConnectionOb
     catch_err!({
         let observer = JConnectionObserver::new(&env, observer)?;
         connection::set_observer(Box::new(observer));
-    });
-}
-
-#[no_mangle]
-pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onCreate(
-    _: JNIEnv,
-    _: JObject,
-) {
-    catch_err!({
-        trace_err!(store::request_data(1))?; // TODO change enum
     });
 }
 
