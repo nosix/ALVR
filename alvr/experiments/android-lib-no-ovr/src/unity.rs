@@ -8,16 +8,14 @@ use jni::{
     JavaVM, JNIEnv,
     objects::{GlobalRef, JObject},
 };
-use once_cell::sync::Lazy;
-use parking_lot::Mutex;
+use once_cell::sync::OnceCell;
 use std::{
     ffi::CStr,
     os::raw::c_char,
     slice::from_raw_parts,
 };
 
-// TODO change to OnceCell
-static PLUGIN: Lazy<Mutex<Option<UnityPlugin>>> = Lazy::new(|| Mutex::new(None));
+static PLUGIN: OnceCell<UnityPlugin> = OnceCell::new();
 
 struct UnityPlugin {
     vm: JavaVM,
@@ -36,10 +34,13 @@ pub extern "system" fn Java_io_github_alvr_android_lib_UnityPlugin_attach(
     env: JNIEnv,
     object: JObject,
 ) {
-    *PLUGIN.lock() = Some(UnityPlugin {
-        vm: env.get_java_vm().unwrap(),
-        object: env.new_global_ref(object).unwrap(),
-    })
+    catch_err!({
+        let plugin = UnityPlugin {
+            vm: env.get_java_vm().unwrap(),
+            object: env.new_global_ref(object).unwrap(),
+        };
+        trace_err!(PLUGIN.set(plugin).map_err(|_| "The PLUGIN is already initialized."))?;
+    });
 }
 
 #[no_mangle]
@@ -48,9 +49,11 @@ extern "system" fn GetInitContextEventFunc() -> *const i32 {
 }
 
 fn init_context(_event_id: i32) {
-    if let Some(plugin) = PLUGIN.lock().as_ref() {
+    catch_err!({
+        let plugin = trace_err!(PLUGIN.get()
+            .ok_or("The PLUGIN has not been initialized."))?;
         plugin.init_context();
-    }
+    });
 }
 
 #[no_mangle]
