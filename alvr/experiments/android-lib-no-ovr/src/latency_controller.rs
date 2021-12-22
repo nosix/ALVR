@@ -77,52 +77,75 @@ impl LatencyController {
         *self = LatencyController::new();
     }
 
-    pub fn estimated_sent(&mut self, frame_index: u64, offset: u64) {
-        self.get_frame(frame_index).estimated_sent = util::get_timestamp_us() - offset;
-        debug!("estimated_sent {}", self.get_frame(frame_index).estimated_sent);
-    }
-
-    pub fn received(&mut self, frame_index: u64, timestamp: u64) {
-        self.get_frame(frame_index).received = timestamp;
-        debug!("received {}", self.get_frame(frame_index).received);
-    }
-
-    pub fn received_first(&mut self, frame_index: u64) {
-        self.get_frame(frame_index).received_first = util::get_timestamp_us();
-        debug!("received_first {}", self.get_frame(frame_index).received_first);
-    }
-
-    // FIXME May be called multiple times with the same index
-    pub fn received_last(&mut self, frame_index: u64) {
-        self.get_frame(frame_index).received_last = util::get_timestamp_us();
-        debug!("received_last {}", self.get_frame(frame_index).received_last);
-    }
-
-    // FIXME May be called multiple times with the same index
-    pub fn decoder_input(&mut self, frame_index: u64) {
-        self.get_frame(frame_index).decoder_input = util::get_timestamp_us();
-        debug!("decoder_input {}", self.get_frame(frame_index).decoder_input);
-    }
-
-    // FIXME May be called multiple times with the same index
-    pub fn decoder_output(&mut self, frame_index: u64) {
-        self.get_frame(frame_index).decoder_output = util::get_timestamp_us();
-        debug!("decoder_output {}", self.get_frame(frame_index).decoder_output);
-    }
-
-    pub fn rendered1(&mut self, frame_index: u64) {
-        self.get_frame(frame_index).rendered1 = util::get_timestamp_us();
-        debug!("rendered1 {}", self.get_frame(frame_index).rendered1);
-    }
-
-    pub fn rendered2(&mut self, frame_index: u64) {
-        self.get_frame(frame_index).rendered2 = util::get_timestamp_us();
-        debug!("rendered2 {}", self.get_frame(frame_index).rendered2);
-    }
-
+    /// Record client time when sending TrackingInfo packet
     pub fn tracking(&mut self, frame_index: u64) {
         self.get_frame(frame_index).tracking = util::get_timestamp_us();
-        debug!("tracking {}", self.get_frame(frame_index).tracking);
+        debug!("tracking {} {}", frame_index, self.get_frame(frame_index).tracking);
+    }
+
+    /// Record estimated client time when the server sent a mode 3 TimeSync packet
+    pub fn received(&mut self, frame_index: u64, sent_time: u64) {
+        let tracking = self.get_frame(frame_index).tracking;
+        let current = util::get_timestamp_us();
+        if tracking < sent_time && sent_time < current {
+            self.get_frame(frame_index).received = sent_time
+        } else {
+            warn!("received: The sent time is not included in the proper period. {} < {} < {}",
+                  tracking, sent_time, current);
+        }
+        debug!("received {} {}", frame_index, self.get_frame(frame_index).received);
+    }
+
+    /// Record estimated client time when the server sent first video frame
+    pub fn estimated_sent(&mut self, frame_index: u64, estimated_sent_time: u64) {
+        let current = util::get_timestamp_us();
+        self.get_frame(frame_index).estimated_sent = if estimated_sent_time < current {
+            estimated_sent_time
+        } else {
+            warn!("estimated_sent: The sent time is later than the receive time. {} < {}",
+                  current, estimated_sent_time);
+            current
+        };
+        debug!("estimated_sent {} {}", frame_index, self.get_frame(frame_index).estimated_sent);
+    }
+
+    /// Record client time when received first video frame
+    pub fn received_first(&mut self, frame_index: u64) {
+        self.get_frame(frame_index).received_first = util::get_timestamp_us();
+        debug!("received_first {} {}", frame_index, self.get_frame(frame_index).received_first);
+    }
+
+    // FIXME May be called multiple times with the same index
+    /// Record client time when received last video frame and pushing NAL
+    pub fn received_last(&mut self, frame_index: u64) {
+        self.get_frame(frame_index).received_last = util::get_timestamp_us();
+        debug!("received_last {} {}", frame_index, self.get_frame(frame_index).received_last);
+    }
+
+    // FIXME May be called multiple times with the same index
+    /// Record client time when IDR or P frame is queued to Decoder
+    pub fn decoder_input(&mut self, frame_index: u64) {
+        self.get_frame(frame_index).decoder_input = util::get_timestamp_us();
+        debug!("decoder_input {} {}", frame_index, self.get_frame(frame_index).decoder_input);
+    }
+
+    // FIXME May be called multiple times with the same index
+    /// Record client time when the Decoder's output buffer becomes available
+    pub fn decoder_output(&mut self, frame_index: u64) {
+        self.get_frame(frame_index).decoder_output = util::get_timestamp_us();
+        debug!("decoder_output {} {}", frame_index, self.get_frame(frame_index).decoder_output);
+    }
+
+    /// Record client time when rendering is completed
+    pub fn rendered1(&mut self, frame_index: u64) {
+        self.get_frame(frame_index).rendered1 = util::get_timestamp_us();
+        debug!("rendered1 {} {}", frame_index, self.get_frame(frame_index).rendered1);
+    }
+
+    /// Currently the same as rendered1
+    pub fn rendered2(&mut self, frame_index: u64) {
+        self.get_frame(frame_index).rendered2 = util::get_timestamp_us();
+        debug!("rendered2 {} {}", frame_index, self.get_frame(frame_index).rendered2);
     }
 
     pub fn submit(&mut self, frame_index: u64) -> bool {
@@ -130,11 +153,30 @@ impl LatencyController {
 
         let timestamp = *self.get_frame(frame_index);
 
-        if timestamp.estimated_sent > timestamp.received_last ||
-            timestamp.decoder_input > timestamp.decoder_output ||
-            timestamp.tracking > timestamp.received ||
-            self.last_submit >= timestamp.submit {
-            error!("invalid timestamp");
+        let mut invalid_timestamp = false;
+
+        if timestamp.estimated_sent > timestamp.received_last {
+            error!("invalid timestamp: {} estimated_sent {} > received_last {} ",
+                   frame_index, timestamp.estimated_sent, timestamp.received_last);
+            invalid_timestamp = true;
+        }
+        if timestamp.decoder_input > timestamp.decoder_output {
+            error!("invalid timestamp: {} decoder_input {} > decoder_output {}",
+                   frame_index, timestamp.decoder_input, timestamp.decoder_output);
+            invalid_timestamp = true;
+        }
+        if timestamp.received != 0 && timestamp.tracking > timestamp.received {
+            error!("invalid timestamp: {} tracking {} > received {}",
+                   frame_index, timestamp.tracking, timestamp.received);
+            invalid_timestamp = true;
+        }
+        if self.last_submit >= timestamp.submit {
+            error!("invalid timestamp: {} last_submit {} >= submit {}",
+                   frame_index, self.last_submit, timestamp.submit);
+            invalid_timestamp = true;
+        }
+
+        if invalid_timestamp {
             return false;
         }
 
@@ -150,6 +192,7 @@ impl LatencyController {
         self.submit_new_frame();
 
         self.frames_in_second = 1000000.0 / (timestamp.submit - self.last_submit) as f32;
+        info!("fps: {} = {} - {}", self.frames_in_second, timestamp.submit, self.last_submit);
         self.last_submit = timestamp.submit;
 
         return true;

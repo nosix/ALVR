@@ -11,29 +11,29 @@ use alvr_common::prelude::*;
 use bytes::{Bytes, Buf};
 use std::mem;
 
-pub struct StreamHandler<P,S> where P: Fn(Nal), S: Fn(Vec<u8>) {
-    time_diff: i64,
+pub struct StreamHandler<P, S> where P: Fn(Nal), S: Fn(Vec<u8>) {
+    server_time_diff: i64,
     last_frame_index: u64,
     prev_video_sequence: u32,
     nal_parser: NalParser<P>,
-    legacy_send: S
+    legacy_send: S,
 }
 
-impl<P,S> StreamHandler<P,S> where P: Fn(Nal), S: Fn(Vec<u8>) {
+impl<P, S> StreamHandler<P, S> where P: Fn(Nal), S: Fn(Vec<u8>) {
     pub fn new(
         enable_fec: bool,
         codec: AlvrCodec,
         push_nal: P,
         legacy_send: S,
-    ) -> StreamHandler<P,S> {
+    ) -> StreamHandler<P, S> {
         latency_controller::INSTANCE.lock().reset();
         let nal_parser = NalParser::new(
             enable_fec,
             codec,
-            push_nal
+            push_nal,
         );
         StreamHandler {
-            time_diff: 0,
+            server_time_diff: 0,
             last_frame_index: 0,
             prev_video_sequence: 0,
             nal_parser,
@@ -48,7 +48,7 @@ impl<P,S> StreamHandler<P,S> where P: Fn(Nal), S: Fn(Vec<u8>) {
             AlvrPacketType::VideoFrame => {
                 let payload = buffer.clone().split_off(mem::size_of::<VideoFrameHeader>());
                 self.process_video_frame(buffer.into(), payload)
-            },
+            }
             AlvrPacketType::HapticsFeedback =>
                 self.process_haptics_feedback(buffer.into()),
             _ => {}
@@ -63,16 +63,11 @@ impl<P,S> StreamHandler<P,S> where P: Fn(Nal), S: Fn(Vec<u8>) {
         let tracking_frame_index = video_frame_header.tracking_frame_index;
         if self.last_frame_index != tracking_frame_index {
             let mut latency_controller = latency_controller::INSTANCE.lock();
-
+            latency_controller.estimated_sent(
+                tracking_frame_index,
+                self.to_estimated_client_time(video_frame_header.sent_time),
+            );
             latency_controller.received_first(tracking_frame_index);
-            // FIXME Isn't it negative when the value of u64 is large?
-            let t1 = video_frame_header.sent_time as i64 - self.time_diff;
-            let t2 = util::get_timestamp_us() as i64;
-            if t1 > t2 {
-                latency_controller.estimated_sent(tracking_frame_index, 0);
-            } else {
-                latency_controller.estimated_sent(tracking_frame_index, (t2 - t1) as u64);
-            }
             self.last_frame_index = tracking_frame_index
         }
 
@@ -83,12 +78,12 @@ impl<P,S> StreamHandler<P,S> where P: Fn(Nal), S: Fn(Vec<u8>) {
 
             let mut fec_failure = latency_controller.get_fec_failure_state();
             let res = self.nal_parser.process_packet(
-                video_frame_header, video_frame_buffer, &mut fec_failure
+                video_frame_header, video_frame_buffer, &mut fec_failure,
             );
             match res {
                 Ok(_) => {
                     latency_controller.received_last(tracking_frame_index);
-                },
+                }
                 Err(ProcessError::ReconstructFailed(ReconstructError::ReconstructFailed)) => {
                     buffer_queue::reset_idr_parsed();
                 }
@@ -131,17 +126,13 @@ impl<P,S> StreamHandler<P,S> where P: Fn(Nal), S: Fn(Vec<u8>) {
                 let mut latency_controller = latency_controller::INSTANCE.lock();
                 latency_controller.set_total_latency(time_sync.server_total_latency);
 
-                // FIXME Isn't it negative when the value of u64 is large?
                 let rtt = current - time_sync.client_time;
-                self.time_diff =
-                    time_sync.server_time as i64 + rtt as i64 / 2 - current as i64;
-                debug!("TimeSync: server - client = {} us RTT = {} us", self.time_diff, rtt);
+                self.set_server_time_diff(time_sync.server_time, current, rtt);
                 self.send_time_sync(time_sync, current);
             }
             3 => {
                 let mut latency_controller = latency_controller::INSTANCE.lock();
-                latency_controller.received(
-                    time_sync.tracking_recv_frame_index, time_sync.server_time);
+                latency_controller.received(time_sync.tracking_recv_frame_index, time_sync.server_time);
             }
             _ => {}
         }
@@ -178,11 +169,21 @@ impl<P,S> StreamHandler<P,S> where P: Fn(Nal), S: Fn(Vec<u8>) {
     fn send_time_sync(
         &self,
         mut time_sync: TimeSync,
-        client_time: u64
+        client_time: u64,
     ) {
         time_sync.mode = 2;
         time_sync.client_time = client_time;
         (self.legacy_send)(time_sync.into());
+    }
+
+    fn set_server_time_diff(&mut self, sent_server_time: u64, received_client_time: u64, rtt: u64) {
+        self.server_time_diff =
+            sent_server_time as i64 + rtt as i64 / 2 - received_client_time as i64;
+        debug!("TimeSync: server - client = {} us RTT = {} us", self.server_time_diff, rtt);
+    }
+
+    fn to_estimated_client_time(&self, server_time: u64) -> u64 {
+        (server_time as i64 - self.server_time_diff) as u64
     }
 }
 
