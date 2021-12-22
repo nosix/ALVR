@@ -19,6 +19,7 @@ class Renderer(
     )
 
     private val mProperties = surface.setup(width, height)
+    private val mFpsCounter = FpsCounter()
 
     fun render(frame: SurfaceHolder) {
         surface.render(frame)
@@ -82,5 +83,7 @@ class Renderer(
 
         // NOTE: Relatively slow processing
         EGL14.eglSwapBuffers(display, surface)
+
+        mFpsCounter.logFrame()
     }
 }
