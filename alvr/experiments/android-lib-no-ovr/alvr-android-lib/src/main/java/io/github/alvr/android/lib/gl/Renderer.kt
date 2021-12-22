@@ -73,7 +73,7 @@ class Renderer(
 
         // NOTE: Relatively slow processing
         GLES32.glDrawElements(
-            GLES32.GL_TRIANGLES,
+            GLES32.GL_TRIANGLE_STRIP,
             mProperties.drawOrderCount,
             GLES32.GL_UNSIGNED_SHORT,
             mProperties.drawOrderBuffer
