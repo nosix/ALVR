@@ -57,7 +57,6 @@ class Renderer(
     private fun GlSurface.render(frame: SurfaceHolder) = withGlContext {
         frame.surfaceTexture.updateTexImage()
 
-        GLES32.glClear(GLES32.GL_COLOR_BUFFER_BIT)
         GLES32.glUseProgram(mProperties.program)
 
         val vertexHandler = ATTRIB_VERTEX.enable(
@@ -71,6 +70,7 @@ class Renderer(
             GLES32.glUniform1i(it, 0) // TEXTURE0
         }
 
+        // NOTE: Relatively slow processing
         GLES32.glDrawElements(
             GLES32.GL_TRIANGLES,
             mProperties.drawOrderCount,
@@ -80,7 +80,7 @@ class Renderer(
 
         GLES32.glDisableVertexAttribArray(vertexHandler)
 
-        GLES32.glFlush()
+        // NOTE: Relatively slow processing
         EGL14.eglSwapBuffers(display, surface)
     }
 }
