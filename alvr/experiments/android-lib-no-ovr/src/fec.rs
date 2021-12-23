@@ -71,7 +71,8 @@ impl FecQueue {
         if self.current_frame.video_frame_index != header.video_frame_index {
             if self.current_frame.tracking_frame_index == header.tracking_frame_index {
                 // FIXME This causes problems with latency_controller
-                warn!("tracking_frame_index has not been changed.");
+                warn!("tracking_frame_index has not been changed. ({})",
+                      header.tracking_frame_index);
             }
             // Check previous frame
             if !self.recovered {
