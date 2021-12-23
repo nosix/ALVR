@@ -1,7 +1,7 @@
 use crate::{
     common::ConnectionEvent,
     connection::ConnectionObserver,
-    device::Device,
+    device::*,
     nal::Nal,
     store::DeviceDataProducer,
 };
@@ -15,6 +15,7 @@ use serde_json;
 
 const INT_TYPE: &'static str = "I";
 const FLOAT_TYPE: &'static str = "F";
+const BOOLEAN_TYPE: &'static str = "Z";
 const FLOAT_ARRAY_TYPE: &'static str = "[F";
 const STRING_TYPE: &'static str = "Ljava/lang/String;";
 
@@ -29,6 +30,13 @@ fn get_float_field(env: &JNIEnv, object: JObject, field_name: &str) -> f32 {
     match env.get_field(object, field_name, FLOAT_TYPE).unwrap() {
         JValue::Float(value) => value,
         _ => 0.0
+    }
+}
+
+fn get_boolean_field(env: &JNIEnv, object: JObject, field_name: &str) -> u8 {
+    match env.get_field(object, field_name, BOOLEAN_TYPE).unwrap() {
+        JValue::Bool(value) => value,
+        _ => 0
     }
 }
 
@@ -264,7 +272,84 @@ impl DeviceDataProducer for JDeviceDataProducer {
             recommended_eye_width: device_settings.get_recommended_eye_width(),
             recommended_eye_height: device_settings.get_recommended_eye_height(),
             available_refresh_rates: device_settings.get_available_refresh_rates(),
-            preferred_refresh_rate: device_settings.get_preferred_refresh_rate()
+            preferred_refresh_rate: device_settings.get_preferred_refresh_rate(),
         })
+    }
+
+    fn get_tracking(&self) -> StrResult<Tracking> {
+        let env = trace_err!(self.vm.attach_current_thread_permanently())?;
+        let ret = trace_err!(env.call_method(
+            &self.object,
+            "getTracking",
+            "()Lio/github/alvr/android/lib/Tracking;",
+            &[]
+        ))?;
+        let tracking = JTracking::new(env, ret.l().unwrap());
+        let eye_fov = tracking.get_eye_fov();
+        let head_pose = tracking.get_head_pose();
+        Ok(Tracking {
+            ipd: tracking.get_ipd(),
+            battery: tracking.get_battery(),
+            plugged: tracking.get_plugged(),
+            l_eye_fov: Rect {
+                left: eye_fov[0],
+                right: eye_fov[1],
+                top: eye_fov[2],
+                bottom: eye_fov[3],
+            },
+            r_eye_fov: Rect {
+                left: eye_fov[4],
+                right: eye_fov[5],
+                top: eye_fov[6],
+                bottom: eye_fov[7],
+            },
+            head_pose_orientation: Quaternion {
+                x: head_pose[0],
+                y: head_pose[1],
+                z: head_pose[2],
+                w: head_pose[3],
+            },
+            head_pose_position: Vector3 {
+                x: head_pose[4],
+                y: head_pose[5],
+                z: head_pose[6],
+            },
+        })
+    }
+}
+
+struct JTracking<'a> {
+    env: JNIEnv<'a>,
+    object: JObject<'a>,
+}
+
+impl<'a> JTracking<'a> {
+    pub fn new(env: JNIEnv<'a>, object: JObject<'a>) -> Self {
+        JTracking {
+            env,
+            object,
+        }
+    }
+
+    pub fn get_ipd(&self) -> f32 {
+        get_float_field(&self.env, self.object, "ipd")
+    }
+
+    pub fn get_battery(&self) -> Percentage {
+        get_int_field(&self.env, self.object, "battery") as Percentage
+    }
+
+    pub fn get_plugged(&self) -> u8 {
+        get_boolean_field(&self.env, self.object, "plugged")
+    }
+
+    /// (l.left, l.right, l.top, l.bottom, r.left, r.right, r.top, r.bottom)
+    pub fn get_eye_fov(&self) -> Vec<f32> {
+        get_float_array_field(&self.env, self.object, "eyeFov")
+    }
+
+    /// (o.x, o.y, o.z, o.w, p.x, p.y, p.z)
+    pub fn get_head_pose(&self) -> Vec<f32> {
+        get_float_array_field(&self.env, self.object, "headPose")
     }
 }

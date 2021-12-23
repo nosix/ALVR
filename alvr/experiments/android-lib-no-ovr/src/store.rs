@@ -1,4 +1,7 @@
-use crate::device::Device;
+use crate::device::{
+    Device,
+    Tracking,
+};
 use alvr_common::prelude::*;
 use alvr_sockets::PrivateIdentity;
 use once_cell::sync::OnceCell;
@@ -9,6 +12,7 @@ static DEVICE_DATA_PRODUCER: OnceCell<Box<dyn DeviceDataProducer>> = OnceCell::n
 
 pub trait DeviceDataProducer: Sync + Send {
     fn get_device(&self) -> StrResult<Device>;
+    fn get_tracking(&self) -> StrResult<Tracking>;
 }
 
 pub fn set_identity(identity: PrivateIdentity) -> StrResult {
@@ -33,4 +37,11 @@ pub fn get_device() -> StrResult<&'static Device> {
         producer.get_device()
             .expect("The DEVICE_DATA_PRODUCER can't produce a Device instance.")
     }))
+}
+
+pub fn get_tracking() -> StrResult<Tracking> {
+    let producer = trace_err!(DEVICE_DATA_PRODUCER.get()
+        .ok_or("The DEVICE_DATA_PRODUCER has not been initialized."))?;
+    let tracking = trace_err!(producer.get_tracking())?;
+    Ok(tracking)
 }

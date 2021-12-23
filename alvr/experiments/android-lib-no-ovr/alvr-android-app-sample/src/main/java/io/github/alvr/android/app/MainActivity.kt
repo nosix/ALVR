@@ -4,8 +4,10 @@ import android.content.Context
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.util.Log
+import android.view.KeyEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import android.view.View
 import io.github.alvr.android.lib.AlvrClient
 import io.github.alvr.android.lib.DeviceSettings
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -38,7 +40,27 @@ class MainActivity : AppCompatActivity() {
         mAlvrClient.attachPreference(getPreferences(Context.MODE_PRIVATE))
         mAlvrClient.attachDeviceDataProducer(mDataProducer)
         lifecycle.addObserver(mAlvrClient)
+        lifecycle.addObserver(mDataProducer)
     }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        when (event.keyCode) {
+            KeyEvent.KEYCODE_W -> mDataProducer.moveToUp = event.isOn
+            KeyEvent.KEYCODE_A -> mDataProducer.moveToLeft = event.isOn
+            KeyEvent.KEYCODE_S -> mDataProducer.moveToDown = event.isOn
+            KeyEvent.KEYCODE_D -> mDataProducer.moveToRight = event.isOn
+            KeyEvent.KEYCODE_R -> mDataProducer.moveToBack = event.isOn
+            KeyEvent.KEYCODE_F -> mDataProducer.moveToForward = event.isOn
+            KeyEvent.KEYCODE_I -> mDataProducer.rotateUp = event.isOn
+            KeyEvent.KEYCODE_J -> mDataProducer.rotateLeft = event.isOn
+            KeyEvent.KEYCODE_K -> mDataProducer.rotateDown = event.isOn
+            KeyEvent.KEYCODE_L -> mDataProducer.rotateRight = event.isOn
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    private val KeyEvent.isOn: Boolean
+        get() = this.action == KeyEvent.ACTION_DOWN
 
     override fun onResume() {
         super.onResume()

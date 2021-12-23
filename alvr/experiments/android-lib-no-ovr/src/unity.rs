@@ -1,6 +1,6 @@
 use crate::{
     catch_err,
-    device::Device,
+    device::{Device, Tracking},
     store::{self, DeviceDataProducer},
 };
 use alvr_common::prelude::*;
@@ -75,6 +75,10 @@ impl DeviceDataProducer for UniDeviceDataProducer<'_> {
     fn get_device(&self) -> StrResult<Device> {
         let device_settings = (self.get_device_csharp_func)();
         Ok(device_settings.into())
+    }
+
+    fn get_tracking(&self) -> StrResult<Tracking> {
+        todo!()
     }
 }
 

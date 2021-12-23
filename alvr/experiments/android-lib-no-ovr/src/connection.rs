@@ -6,6 +6,7 @@ use crate::{
     legacy_packets::*,
     legacy_stream::StreamHandler,
     latency_controller,
+    store,
     util,
 };
 use alvr_common::{
@@ -421,7 +422,7 @@ async fn control_send_loop(
 
 async fn time_sync_loop(
     mut rendered_receiver: tmpsc::UnboundedReceiver<u64>,
-    legacy_send_data_sender: tmpsc::UnboundedSender<Vec<u8>>
+    legacy_send_data_sender: tmpsc::UnboundedSender<Vec<u8>>,
 ) -> StrResult {
     while let Some(frame_index) = rendered_receiver.recv().await {
         let mut latency_controller = latency_controller::INSTANCE.lock();
@@ -445,16 +446,39 @@ async fn tracking_loop(
     loop {
         // unsafe { crate::onTrackingNative(tracking_clientside_prediction) };
         frame_index += 1;
+        let tracking = store::get_tracking()?;
         let tracking_info = TrackingInfo {
             client_time: util::get_timestamp_us(),
             frame_index,
             // TODO predicated_display_time
-            ipd: 0.068606f32,
-            // TODO eye_fov
-            // TODO battery
-            // TODO plugged
-            // TODO head_pose_orientation
-            // TODO head_pose_position
+            ipd: tracking.ipd,
+            eye_fov: [
+                EyeFov {
+                    left: tracking.l_eye_fov.left,
+                    right: tracking.l_eye_fov.right,
+                    top: tracking.l_eye_fov.top,
+                    bottom: tracking.l_eye_fov.bottom,
+                },
+                EyeFov {
+                    left: tracking.r_eye_fov.left,
+                    right: tracking.r_eye_fov.right,
+                    top: tracking.r_eye_fov.top,
+                    bottom: tracking.r_eye_fov.bottom,
+                }
+            ],
+            battery: tracking.battery as u64,
+            plugged: tracking.plugged as u64,
+            head_pose_orientation: TrackingQuad {
+                x: tracking.head_pose_orientation.x,
+                y: tracking.head_pose_orientation.y,
+                z: tracking.head_pose_orientation.z,
+                w: tracking.head_pose_orientation.w,
+            },
+            head_pose_position: TrackingVector3 {
+                x: tracking.head_pose_position.x,
+                y: tracking.head_pose_position.y,
+                z: tracking.head_pose_position.z,
+            },
             // TODO controller
             ..Default::default()
         };
@@ -594,7 +618,7 @@ mod tests {
         recommended_eye_width: 1920,
         recommended_eye_height: 1080,
         available_refresh_rates: vec![60.0],
-        preferred_refresh_rate: 60.0
+        preferred_refresh_rate: 60.0,
     });
 
     static IDENTITY: Lazy<PrivateIdentity> = Lazy::new(||
