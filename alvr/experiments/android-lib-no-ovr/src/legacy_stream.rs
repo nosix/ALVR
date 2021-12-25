@@ -26,7 +26,7 @@ impl<P, S> StreamHandler<P, S> where P: Fn(Nal), S: Fn(Vec<u8>) {
         push_nal: P,
         legacy_send: S,
     ) -> StreamHandler<P, S> {
-        latency_controller::INSTANCE.lock().reset();
+        latency_controller::reset();
         let nal_parser = NalParser::new(
             enable_fec,
             codec,
@@ -62,27 +62,24 @@ impl<P, S> StreamHandler<P, S> where P: Fn(Nal), S: Fn(Vec<u8>) {
 
         let tracking_frame_index = video_frame_header.tracking_frame_index;
         if self.last_frame_index != tracking_frame_index {
-            let mut latency_controller = latency_controller::INSTANCE.lock();
-            latency_controller.estimated_sent(
+            latency_controller::estimated_sent(
                 tracking_frame_index,
                 self.to_estimated_client_time(video_frame_header.sent_time),
             );
-            latency_controller.received_first(tracking_frame_index);
+            latency_controller::received_first(tracking_frame_index);
             self.last_frame_index = tracking_frame_index
         }
 
         self.process_video_sequence(video_frame_header.packet_counter);
 
         {
-            let mut latency_controller = latency_controller::INSTANCE.lock();
-
-            let mut fec_failure = latency_controller.get_fec_failure_state();
+            let mut fec_failure = latency_controller::get_fec_failure_state();
             let res = self.nal_parser.process_packet(
                 video_frame_header, video_frame_buffer, &mut fec_failure,
             );
             match res {
                 Ok(_) => {
-                    latency_controller.received_last(tracking_frame_index);
+                    latency_controller::received_last(tracking_frame_index);
                 }
                 Err(ProcessError::ReconstructFailed(ReconstructError::ReconstructFailed)) => {
                     buffer_queue::reset_idr_parsed();
@@ -90,10 +87,10 @@ impl<P, S> StreamHandler<P, S> where P: Fn(Nal), S: Fn(Vec<u8>) {
                 _ => ()
             }
             if fec_failure {
-                latency_controller.fec_failure();
+                latency_controller::fec_failure();
                 self.send_packet_error_report(AlvrLostFrameType::Video, 0, 0);
             }
-            latency_controller.set_fec_failure_state(fec_failure);
+            latency_controller::set_fec_failure_state(fec_failure);
         }
     }
 
@@ -109,8 +106,7 @@ impl<P, S> StreamHandler<P, S> where P: Fn(Nal), S: Fn(Vec<u8>) {
                 expected_video_sequence - sequence
             };
 
-            let mut latency_controller = latency_controller::INSTANCE.lock();
-            latency_controller.packet_loss(lost);
+            latency_controller::packet_loss(lost);
 
             error!("VideoPacket loss {} ({} -> {})", lost, self.prev_video_sequence, sequence)
         }
@@ -123,16 +119,14 @@ impl<P, S> StreamHandler<P, S> where P: Fn(Nal), S: Fn(Vec<u8>) {
         let current = util::get_timestamp_us();
         match time_sync.mode {
             1 => {
-                let mut latency_controller = latency_controller::INSTANCE.lock();
-                latency_controller.set_total_latency(time_sync.server_total_latency);
+                latency_controller::set_total_latency(time_sync.server_total_latency);
 
                 let rtt = current - time_sync.client_time;
                 self.set_server_time_diff(time_sync.server_time, current, rtt);
                 self.send_time_sync(time_sync, current);
             }
             3 => {
-                let mut latency_controller = latency_controller::INSTANCE.lock();
-                latency_controller.received(time_sync.tracking_recv_frame_index, time_sync.server_time);
+                latency_controller::received(time_sync.tracking_recv_frame_index, time_sync.server_time);
             }
             _ => {}
         }
@@ -173,6 +167,7 @@ impl<P, S> StreamHandler<P, S> where P: Fn(Nal), S: Fn(Vec<u8>) {
     ) {
         time_sync.mode = 2;
         time_sync.client_time = client_time;
+        info!("TimeSync {:?}", time_sync);
         (self.legacy_send)(time_sync.into());
     }
 

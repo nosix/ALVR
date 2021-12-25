@@ -16,7 +16,7 @@ mod util;
 
 use crate::jvm::{
     InputBuffer,
-    JConnectionObserver, JDeviceDataProducer, JDeviceSettings,
+    JConnectionObserver, JDeviceDataProducer,
     Preferences,
 };
 use alvr_common::prelude::*;
@@ -128,7 +128,7 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onOutputBufferA
     _: JObject,
     frame_index: i64,
 ) {
-    latency_controller::INSTANCE.lock().decoder_output(frame_index as u64);
+    latency_controller::decoder_output(frame_index as u64);
 }
 
 #[no_mangle]

@@ -93,7 +93,7 @@ pub fn buffer_coordination_loop() -> task::JoinHandle<StrResult> {
                     if nal.nal_type == NalType::Idr {
                         IDR_PARSED.store(true, Ordering::Relaxed);
                     }
-                    latency_controller::INSTANCE.lock().decoder_input(nal.frame_index);
+                    latency_controller::decoder_input(nal.frame_index);
                     input_buffer.queue(&env, nal)?;
                 }
             }
@@ -110,7 +110,7 @@ pub fn buffer_coordination_loop() -> task::JoinHandle<StrResult> {
                     if nal.nal_type == NalType::Idr {
                         IDR_PARSED.store(true, Ordering::Relaxed);
                     }
-                    latency_controller::INSTANCE.lock().decoder_input(nal.frame_index);
+                    latency_controller::decoder_input(nal.frame_index);
                     info!(
                         "queue {:?} frame_len={} frame_index={}",
                         nal.nal_type, nal.frame_buffer.len(), nal.frame_index
