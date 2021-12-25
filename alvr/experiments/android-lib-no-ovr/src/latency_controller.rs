@@ -11,22 +11,24 @@ use tokio::sync::mpsc::{
 };
 
 const MAX_FRAMES: usize = 1024;
-
-static INSTANCE: Lazy<Mutex<LatencyController>> =
-    Lazy::new(|| Mutex::new(LatencyController::new()));
+const MAX_ACTIONS: usize = 64;
 
 static ACTION_CHANNEL: Lazy<ActionChannel> =
     Lazy::new(|| {
-        let (sender, receiver) = tmpsc::channel(256);
+        let (sender, receiver) = tmpsc::channel(MAX_ACTIONS);
         ActionChannel { sender, receiver: Mutex::new(receiver) }
     });
+
+static STORE: Lazy<Mutex<FrameTimestampStore>> =
+    Lazy::new(|| Mutex::new(FrameTimestampStore::new()));
+
+static CONTROLLER: Lazy<Mutex<LatencyController>> =
+    Lazy::new(|| Mutex::new(LatencyController::new()));
 
 struct ActionChannel {
     sender: tmpsc::Sender<Action>,
     receiver: Mutex<tmpsc::Receiver<Action>>,
 }
-
-unsafe impl Sync for ActionChannel {}
 
 #[derive(Copy, Clone, Debug)]
 struct Action {
@@ -59,7 +61,8 @@ fn queue(frame_index: u64, time: ActTime) {
 pub fn reset() {
     let mut receiver = ACTION_CHANNEL.receiver.lock();
     while let Ok(_) = receiver.try_recv() {} // clear actions
-    INSTANCE.lock().reset();
+    STORE.lock().reset();
+    CONTROLLER.lock().reset();
 }
 
 /// Record client time when sending TrackingInfo packet
@@ -108,91 +111,36 @@ pub fn rendered(frame_index: u64) {
 }
 
 pub fn submit(frame_index: u64) -> bool {
-    update_timestamp(frame_index);
-    return INSTANCE.lock().submit(frame_index);
-}
-
-fn update_timestamp(last_frame_index: u64) {
-    let mut instance = INSTANCE.lock();
-    let mut receiver = ACTION_CHANNEL.receiver.lock();
-    while let Ok(action) = receiver.try_recv() {
-        if action.frame_index < last_frame_index { continue; }
-        match action.time {
-            ActTime::Tracking(time) => {
-                instance.tracking(action.frame_index, time);
-            }
-            ActTime::Received(sent_time, received_time) => {
-                instance.received(action.frame_index, sent_time, received_time);
-            }
-            ActTime::EstimatedSent(estimated_sent_time, received_time) => {
-                instance.estimated_sent(action.frame_index, estimated_sent_time, received_time);
-            }
-            ActTime::ReceivedFirst(time) => {
-                instance.received_first(action.frame_index, time);
-            }
-            ActTime::ReceivedLast(time) => {
-                instance.received_last(action.frame_index, time);
-            }
-            ActTime::DecoderInput(time) => {
-                instance.decoder_input(action.frame_index, time);
-            }
-            ActTime::DecoderOutput(time) => {
-                instance.decoder_output(action.frame_index, time);
-            }
-            ActTime::Rendered(time) => {
-                instance.rendered1(action.frame_index, time);
-                instance.rendered2(action.frame_index, time);
-            }
-        }
-    }
+    let timestamp = STORE.lock().submit(frame_index);
+    CONTROLLER.lock().submit(timestamp)
 }
 
 pub fn new_time_sync() -> TimeSync {
-    INSTANCE.lock().new_time_sync()
+    CONTROLLER.lock().new_time_sync()
 }
 
 pub fn get_fec_failure_state() -> bool {
-    INSTANCE.lock().get_fec_failure_state()
+    CONTROLLER.lock().get_fec_failure_state()
 }
 
 pub fn fec_failure() {
-    INSTANCE.lock().fec_failure()
+    CONTROLLER.lock().fec_failure()
 }
 
 pub fn set_fec_failure_state(fec_failure: bool) {
-    INSTANCE.lock().set_fec_failure_state(fec_failure)
+    CONTROLLER.lock().set_fec_failure_state(fec_failure)
 }
 
 pub fn packet_loss(lost: u32) {
-    INSTANCE.lock().packet_loss(lost)
+    CONTROLLER.lock().packet_loss(lost)
 }
 
 pub fn set_total_latency(latency: u32) {
-    INSTANCE.lock().set_total_latency(latency)
+    CONTROLLER.lock().set_total_latency(latency)
 }
 
-struct LatencyController {
+struct FrameTimestampStore {
     frames: [FrameTimestamp; MAX_FRAMES],
-
-    statistics_time: u64,
-    packets_lost_total: u64,
-    packets_lost_in_second: u64,
-    packets_lost_previous: u64,
-    fec_failure_total: u64,
-    fec_failure_in_second: u64,
-    fec_failure_previous: u64,
-
-    server_total_latency: u32,
-
-    // Total/Transport/Decode latency
-    // Total/Max/Min/Count
-    latency: [u32; 4],
-
-    last_submit: u64,
-    frames_in_second: f32,
-
-    time_sync_sequence: u64,
-    fec_failure_state: bool,
 }
 
 #[derive(Default, Copy, Clone)]
@@ -212,29 +160,24 @@ struct FrameTimestamp {
     submit: u64,
 }
 
-impl LatencyController {
-    fn new() -> LatencyController {
-        LatencyController {
+impl FrameTimestampStore {
+    fn new() -> Self {
+        Self {
             frames: [FrameTimestamp { ..Default::default() }; MAX_FRAMES],
-            statistics_time: util::get_timestamp_us() / util::US_IN_SEC,
-            packets_lost_total: 0,
-            packets_lost_in_second: 0,
-            packets_lost_previous: 0,
-            fec_failure_total: 0,
-            fec_failure_in_second: 0,
-            fec_failure_previous: 0,
-            server_total_latency: 0,
-            latency: [0; 4],
-
-            last_submit: 0,
-            frames_in_second: 0.0,
-            time_sync_sequence: 0,
-            fec_failure_state: false,
         }
     }
 
     fn reset(&mut self) {
-        *self = LatencyController::new();
+        *self = FrameTimestampStore::new();
+    }
+
+    fn get_frame(&mut self, frame_index: u64) -> &mut FrameTimestamp {
+        let frame = &mut self.frames[(frame_index as usize) % MAX_FRAMES];
+        if frame.frame_index != frame_index {
+            *frame = Default::default();
+            frame.frame_index = frame_index;
+        }
+        frame
     }
 
     fn tracking(&mut self, frame_index: u64, time: u64) {
@@ -296,31 +239,113 @@ impl LatencyController {
         debug!("rendered2 {} {}", frame_index, self.get_frame(frame_index).rendered2);
     }
 
-    fn submit(&mut self, frame_index: u64) -> bool {
+    fn submit(&mut self, frame_index: u64) -> FrameTimestamp {
         self.get_frame(frame_index).submit = util::get_timestamp_us();
+        debug!("submit {} {}", frame_index, self.get_frame(frame_index).submit);
 
-        let timestamp = *self.get_frame(frame_index);
+        let mut receiver = ACTION_CHANNEL.receiver.lock();
+        while let Ok(action) = receiver.try_recv() {
+            if action.frame_index < frame_index { continue; }
+            match action.time {
+                ActTime::Tracking(time) => {
+                    self.tracking(action.frame_index, time);
+                }
+                ActTime::Received(sent_time, received_time) => {
+                    self.received(action.frame_index, sent_time, received_time);
+                }
+                ActTime::EstimatedSent(estimated_sent_time, received_time) => {
+                    self.estimated_sent(action.frame_index, estimated_sent_time, received_time);
+                }
+                ActTime::ReceivedFirst(time) => {
+                    self.received_first(action.frame_index, time);
+                }
+                ActTime::ReceivedLast(time) => {
+                    self.received_last(action.frame_index, time);
+                }
+                ActTime::DecoderInput(time) => {
+                    self.decoder_input(action.frame_index, time);
+                }
+                ActTime::DecoderOutput(time) => {
+                    self.decoder_output(action.frame_index, time);
+                }
+                ActTime::Rendered(time) => {
+                    self.rendered1(action.frame_index, time);
+                    self.rendered2(action.frame_index, time);
+                }
+            }
+        }
 
+        *self.get_frame(frame_index)
+    }
+}
+
+struct LatencyController {
+    statistics_time: u64,
+    packets_lost_total: u64,
+    packets_lost_in_second: u64,
+    packets_lost_previous: u64,
+    fec_failure_total: u64,
+    fec_failure_in_second: u64,
+    fec_failure_previous: u64,
+
+    server_total_latency: u32,
+
+    // Total/Transport/Decode latency
+    // Total/Max/Min/Count
+    latency: [u32; 4],
+
+    last_submit: u64,
+    frames_in_second: f32,
+
+    time_sync_sequence: u64,
+    fec_failure_state: bool,
+}
+
+impl LatencyController {
+    fn new() -> LatencyController {
+        LatencyController {
+            statistics_time: util::get_timestamp_us() / util::US_IN_SEC,
+            packets_lost_total: 0,
+            packets_lost_in_second: 0,
+            packets_lost_previous: 0,
+            fec_failure_total: 0,
+            fec_failure_in_second: 0,
+            fec_failure_previous: 0,
+            server_total_latency: 0,
+            latency: [0; 4],
+
+            last_submit: 0,
+            frames_in_second: 0.0,
+            time_sync_sequence: 0,
+            fec_failure_state: false,
+        }
+    }
+
+    fn reset(&mut self) {
+        *self = LatencyController::new();
+    }
+
+    fn submit(&mut self, timestamp: FrameTimestamp) -> bool {
         let mut invalid_timestamp = false;
 
         if timestamp.estimated_sent > timestamp.received_last {
             error!("invalid timestamp: {} estimated_sent {} > received_last {} ",
-                   frame_index, timestamp.estimated_sent, timestamp.received_last);
+                   timestamp.frame_index, timestamp.estimated_sent, timestamp.received_last);
             invalid_timestamp = true;
         }
         if timestamp.decoder_input > timestamp.decoder_output {
             error!("invalid timestamp: {} decoder_input {} > decoder_output {}",
-                   frame_index, timestamp.decoder_input, timestamp.decoder_output);
+                   timestamp.frame_index, timestamp.decoder_input, timestamp.decoder_output);
             invalid_timestamp = true;
         }
         if timestamp.received != 0 && timestamp.tracking > timestamp.received {
             error!("invalid timestamp: {} tracking {} > received {}",
-                   frame_index, timestamp.tracking, timestamp.received);
+                   timestamp.frame_index, timestamp.tracking, timestamp.received);
             invalid_timestamp = true;
         }
         if self.last_submit >= timestamp.submit {
             error!("invalid timestamp: {} last_submit {} >= submit {}",
-                   frame_index, self.last_submit, timestamp.submit);
+                   timestamp.frame_index, self.last_submit, timestamp.submit);
             invalid_timestamp = true;
         }
 
@@ -367,15 +392,6 @@ impl LatencyController {
                 ((latency as f32) * 0.05 + (self.server_total_latency as f32) * 0.95) as u32;
         }
         debug!("set_total_latency {}", self.server_total_latency);
-    }
-
-    fn get_frame(&mut self, frame_index: u64) -> &mut FrameTimestamp {
-        let frame = &mut self.frames[(frame_index as usize) % MAX_FRAMES];
-        if frame.frame_index != frame_index {
-            *frame = Default::default();
-            frame.frame_index = frame_index;
-        }
-        frame
     }
 
     fn submit_new_frame(&mut self) {
