@@ -13,21 +13,19 @@ use tokio::sync::mpsc::{
 const MAX_FRAMES: usize = 1024;
 const MAX_ACTIONS: usize = 64;
 
-static ACTION_CHANNEL: Lazy<ActionChannel> =
+static STORE: Lazy<FrameTimestampStoreFacade> =
     Lazy::new(|| {
         let (sender, receiver) = tmpsc::channel(MAX_ACTIONS);
-        ActionChannel { sender, receiver: Mutex::new(receiver) }
+        let instance = Mutex::new(FrameTimestampStore::new(receiver));
+        FrameTimestampStoreFacade { sender, instance }
     });
-
-static STORE: Lazy<Mutex<FrameTimestampStore>> =
-    Lazy::new(|| Mutex::new(FrameTimestampStore::new()));
 
 static CONTROLLER: Lazy<Mutex<LatencyController>> =
     Lazy::new(|| Mutex::new(LatencyController::new()));
 
-struct ActionChannel {
+struct FrameTimestampStoreFacade {
     sender: tmpsc::Sender<Action>,
-    receiver: Mutex<tmpsc::Receiver<Action>>,
+    instance: Mutex<FrameTimestampStore>
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -50,18 +48,14 @@ enum ActTime {
 
 fn queue(frame_index: u64, time: ActTime) {
     let action = Action { frame_index, time };
-    while let Err(TrySendError::Full(_)) = ACTION_CHANNEL.sender.try_send(action) {
-        if let Ok(action) = ACTION_CHANNEL.receiver.lock().try_recv() {
-            warn!("drop {:?}", action);
-        }
+    while let Err(TrySendError::Full(_)) = STORE.sender.try_send(action) {
+        STORE.instance.lock().drop_oldest_action();
     }
     info!("queue {:?}", action);
 }
 
 pub fn reset() {
-    let mut receiver = ACTION_CHANNEL.receiver.lock();
-    while let Ok(_) = receiver.try_recv() {} // clear actions
-    STORE.lock().reset();
+    STORE.instance.lock().reset();
     CONTROLLER.lock().reset();
 }
 
@@ -111,7 +105,7 @@ pub fn rendered(frame_index: u64) {
 }
 
 pub fn submit(frame_index: u64) -> bool {
-    let timestamp = STORE.lock().submit(frame_index);
+    let timestamp = STORE.instance.lock().submit(frame_index);
     CONTROLLER.lock().submit(timestamp)
 }
 
@@ -140,6 +134,7 @@ pub fn set_total_latency(latency: u32) {
 }
 
 struct FrameTimestampStore {
+    action_receiver: tmpsc::Receiver<Action>,
     frames: [FrameTimestamp; MAX_FRAMES],
 }
 
@@ -161,14 +156,20 @@ struct FrameTimestamp {
 }
 
 impl FrameTimestampStore {
-    fn new() -> Self {
+    fn frames_default() -> [FrameTimestamp; MAX_FRAMES] {
+        [FrameTimestamp { ..Default::default() }; MAX_FRAMES]
+    }
+
+    fn new(action_receiver: tmpsc::Receiver<Action>) -> Self {
         Self {
-            frames: [FrameTimestamp { ..Default::default() }; MAX_FRAMES],
+            action_receiver,
+            frames: FrameTimestampStore::frames_default()
         }
     }
 
     fn reset(&mut self) {
-        *self = FrameTimestampStore::new();
+        while self.drop_oldest_action() {}
+        self.frames = FrameTimestampStore::frames_default()
     }
 
     fn get_frame(&mut self, frame_index: u64) -> &mut FrameTimestamp {
@@ -243,8 +244,7 @@ impl FrameTimestampStore {
         self.get_frame(frame_index).submit = util::get_timestamp_us();
         debug!("submit {} {}", frame_index, self.get_frame(frame_index).submit);
 
-        let mut receiver = ACTION_CHANNEL.receiver.lock();
-        while let Ok(action) = receiver.try_recv() {
+        while let Ok(action) = self.action_receiver.try_recv() {
             if action.frame_index < frame_index { continue; }
             match action.time {
                 ActTime::Tracking(time) => {
@@ -276,6 +276,15 @@ impl FrameTimestampStore {
         }
 
         *self.get_frame(frame_index)
+    }
+
+    fn drop_oldest_action(&mut self) -> bool {
+        return if let Ok(action) = self.action_receiver.try_recv() {
+            warn!("drop {:?}", action);
+            true
+        } else {
+            false
+        }
     }
 }
 
