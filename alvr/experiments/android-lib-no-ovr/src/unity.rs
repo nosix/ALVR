@@ -58,17 +58,20 @@ fn init_context(_event_id: i32) {
 
 #[no_mangle]
 extern "system" fn SetDeviceDataProducer(
-    device_settings_producer: extern fn() -> &'static UniDeviceSettings
+    device_settings_producer: extern fn() -> &'static UniDeviceSettings,
+    tracking_producer: extern fn() -> &'static Tracking,
 ) {
     catch_err!({
         trace_err!(store::set_device_data_producer(Box::new(UniDeviceDataProducer {
-            get_device_csharp_func: device_settings_producer
+            get_device_csharp_func: device_settings_producer,
+            get_tracking_func: tracking_producer,
         })))?;
     });
 }
 
 struct UniDeviceDataProducer<'a> {
     get_device_csharp_func: extern fn() -> &'a UniDeviceSettings,
+    get_tracking_func: extern fn() -> &'a Tracking,
 }
 
 impl DeviceDataProducer for UniDeviceDataProducer<'_> {
@@ -78,7 +81,8 @@ impl DeviceDataProducer for UniDeviceDataProducer<'_> {
     }
 
     fn get_tracking(&self) -> StrResult<Tracking> {
-        todo!()
+        let tracking = (self.get_tracking_func)();
+        Ok(*tracking)
     }
 }
 

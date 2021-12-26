@@ -9,6 +9,7 @@ pub struct Device {
 }
 
 #[repr(C)]
+#[derive(Copy, Clone, Debug)]
 pub struct Tracking {
     /// Inter Pupillary Distance (meter)
     pub ipd: f32,
@@ -21,6 +22,7 @@ pub struct Tracking {
 }
 
 #[repr(C)]
+#[derive(Copy, Clone, Debug)]
 pub struct Rect {
     pub left: f32,
     pub right: f32,
@@ -29,6 +31,7 @@ pub struct Rect {
 }
 
 #[repr(C)]
+#[derive(Copy, Clone, Debug)]
 pub struct Quaternion {
     pub x: f32,
     pub y: f32,
@@ -37,6 +40,7 @@ pub struct Quaternion {
 }
 
 #[repr(C)]
+#[derive(Copy, Clone, Debug)]
 pub struct Vector3 {
     pub x: f32,
     pub y: f32,
