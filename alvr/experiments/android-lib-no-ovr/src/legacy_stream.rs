@@ -167,7 +167,7 @@ impl<P, S> StreamHandler<P, S> where P: Fn(Nal), S: Fn(Vec<u8>) {
     ) {
         time_sync.mode = 2;
         time_sync.client_time = client_time;
-        info!("TimeSync {:?}", time_sync);
+        debug!("TimeSync {:?}", time_sync);
         (self.legacy_send)(time_sync.into());
     }
 

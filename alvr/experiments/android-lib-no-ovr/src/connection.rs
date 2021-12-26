@@ -429,7 +429,7 @@ async fn time_sync_loop(
         if latency_controller::submit(frame_index) {
             // TimeSync here might be an issue but it seems to work fine
             let time_sync = latency_controller::new_time_sync();
-            info!("TimeSync {:?}", time_sync);
+            debug!("TimeSync {:?}", time_sync);
             trace_err!(legacy_send_data_sender.send(time_sync.into()))?;
         }
     }

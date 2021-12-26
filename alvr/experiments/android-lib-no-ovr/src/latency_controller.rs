@@ -51,7 +51,7 @@ fn queue(frame_index: u64, time: ActTime) {
     while let Err(TrySendError::Full(_)) = STORE.sender.try_send(action) {
         STORE.instance.lock().drop_oldest_action();
     }
-    info!("queue {:?}", action);
+    debug!("queue {:?}", action);
 }
 
 pub fn reset() {
