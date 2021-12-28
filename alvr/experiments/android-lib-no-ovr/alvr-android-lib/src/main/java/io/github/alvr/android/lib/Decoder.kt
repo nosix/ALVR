@@ -5,8 +5,10 @@ import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.util.Log
 import io.github.alvr.android.lib.event.AlvrCodec
+import io.github.alvr.android.lib.gl.FfrParam
+import io.github.alvr.android.lib.gl.FfrRenderer
 import io.github.alvr.android.lib.gl.GlSurface
-import io.github.alvr.android.lib.gl.Renderer
+import io.github.alvr.android.lib.gl.PassThroughRenderer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
@@ -36,12 +38,13 @@ class Decoder(
         isRealTime: Boolean,
         surface: GlSurface,
         width: Int,
-        height: Int
+        height: Int,
+        ffrParam: FfrParam?
     ) {
         mScope.launch {
             mDecodeJob?.cancelAndJoin()
             mDecodeJob = launch {
-                decodeStream(videoFormat, isRealTime, surface, width, height)
+                decodeStream(videoFormat, isRealTime, surface, width, height, ffrParam)
             }
         }
     }
@@ -57,7 +60,8 @@ class Decoder(
         isRealTime: Boolean,
         surface: GlSurface,
         width: Int,
-        height: Int
+        height: Int,
+        ffrParam: FfrParam?
     ) {
         val frameSurface = surface.context.createSurface(width, height)
         val format = MediaFormat.createVideoFormat(videoFormat.mime, width, height).apply {
@@ -79,7 +83,11 @@ class Decoder(
         Log.i(TAG, "The decoder has started.")
 
         try {
-            val renderer = Renderer(surface, width, height)
+            val renderer = if (ffrParam == null) {
+                PassThroughRenderer(surface, width, height)
+            } else {
+                FfrRenderer(surface, width, height, ffrParam)
+            }
             while (coroutineContext.isActive) {
                 val frameIndex = mUpdatedSignalChannel.receive()
                 renderer.render(frameSurface)

@@ -4,6 +4,7 @@ import io.github.alvr.android.lib.event.AlvrCodec
 import io.github.alvr.android.lib.event.ConnectionError
 import io.github.alvr.android.lib.event.ConnectionEvent
 import io.github.alvr.android.lib.event.ConnectionSettings
+import io.github.alvr.android.lib.gl.FfrParam
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import org.junit.Test
@@ -33,16 +34,17 @@ class ConnectionEventDeserializeTest {
                 }
         """.trimIndent()))
     }
+
     @Test
-    fun testConnected() {
+    fun testConnectedWithoutFfrParam() {
         assertEquals(
             ConnectionEvent.Connected(
                 ConnectionSettings(
                     60.0f,
                     AlvrCodec.H264,
                     realtime = true,
-                    darkMode = false,
-                    dashboardUrl = "http://192.168.1.1:8082/"
+                    dashboardUrl = "http://192.168.1.1:8082/",
+                    ffrParam = null
                 )
             ),
             Json.decodeFromString<ConnectionEvent>("""
@@ -52,8 +54,48 @@ class ConnectionEventDeserializeTest {
                     "fps": 60.0,
                     "codec": { "type": "H264" },
                     "realtime": true,
-                    "dark_mode": false,
-                    "dashboard_url": "http://192.168.1.1:8082/"
+                    "dashboard_url": "http://192.168.1.1:8082/",
+                    "ffr_param": null
+                  }
+                }
+        """.trimIndent()))
+    }
+
+    @Test
+    fun testConnected() {
+        assertEquals(
+            ConnectionEvent.Connected(
+                ConnectionSettings(
+                    60.0f,
+                    AlvrCodec.H264,
+                    realtime = true,
+                    dashboardUrl = "http://192.168.1.1:8082/",
+                    ffrParam = FfrParam(
+                        1920, 1080,
+                        1f, 2f,
+                        3f, 4f,
+                        5f, 6f
+                    )
+                )
+            ),
+            Json.decodeFromString<ConnectionEvent>("""
+                {
+                  "type": "Connected",
+                  "settings": {
+                    "fps": 60.0,
+                    "codec": { "type": "H264" },
+                    "realtime": true,
+                    "dashboard_url": "http://192.168.1.1:8082/",
+                    "ffr_param": {
+                      "eye_width": 1920,
+                      "eye_height": 1080,
+                      "center_size_x": 1.0,
+                      "center_size_y": 2.0,
+                      "center_shift_x": 3.0 ,
+                      "center_shift_y": 4.0,
+                      "edge_ratio_x": 5.0,
+                      "edge_ratio_y": 6.0
+                    }
                   }
                 }
         """.trimIndent()))

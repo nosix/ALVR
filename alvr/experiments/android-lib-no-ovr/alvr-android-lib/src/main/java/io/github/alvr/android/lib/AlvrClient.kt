@@ -125,7 +125,8 @@ class AlvrClient(
                             settings.realtime,
                             GlSurface(context, screen.surface),
                             screen.width,
-                            screen.height
+                            screen.height,
+                            settings.ffrParam
                         )
                     }
                 } finally {

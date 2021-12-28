@@ -1,5 +1,6 @@
 package io.github.alvr.android.lib.event
 
+import io.github.alvr.android.lib.gl.FfrParam
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -8,8 +9,8 @@ data class ConnectionSettings(
     val fps: Float,
     val codec: AlvrCodec,
     val realtime: Boolean,
-    @SerialName("dark_mode")
-    val darkMode: Boolean,
     @SerialName("dashboard_url")
     val dashboardUrl: String,
+    @SerialName("ffr_param")
+    val ffrParam: FfrParam?
 )

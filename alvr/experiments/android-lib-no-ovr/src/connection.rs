@@ -1,7 +1,10 @@
 use crate::{
     audio,
     buffer_queue,
-    common::{ConnectionError, ConnectionEvent, ConnectionSettings},
+    common::{
+        ConnectionError, ConnectionEvent, ConnectionSettings,
+        FfrParam,
+    },
     device::Device,
     legacy_packets::*,
     legacy_stream::StreamHandler,
@@ -214,13 +217,7 @@ async fn connection_pipeline(
     };
 
     notify_event(ConnectionEvent::Connected {
-        settings: ConnectionSettings {
-            fps: config_packet.fps,
-            codec: settings.video.codec.into(),
-            realtime: settings.video.client_request_realtime_decoder,
-            dark_mode: settings.extra.client_dark_mode,
-            dashboard_url: config_packet.dashboard_url,
-        }
+        settings: to_connection_settings(&config_packet, &settings.video)
     });
 
     // let is_connected = Arc::new(AtomicBool::new(true));
@@ -304,6 +301,33 @@ async fn connection_pipeline(
     })?;
 
     Ok(())
+}
+
+fn to_connection_settings(
+    config_packet: &ClientConfigPacket,
+    video_desc: &VideoDesc,
+) -> ConnectionSettings {
+    let ffr_param = if let Switch::Enabled(ref foveation_vars) = video_desc.foveated_rendering {
+        Some(FfrParam {
+            eye_width: config_packet.eye_resolution_width as i32,
+            eye_height: config_packet.eye_resolution_height as i32,
+            center_size_x: foveation_vars.center_size_x,
+            center_size_y: foveation_vars.center_size_y,
+            center_shift_x: foveation_vars.center_shift_x,
+            center_shift_y: foveation_vars.center_shift_y,
+            edge_ratio_x: foveation_vars.edge_ratio_x,
+            edge_ratio_y: foveation_vars.edge_ratio_y,
+        })
+    } else {
+        None
+    };
+    ConnectionSettings {
+        fps: config_packet.fps,
+        codec: video_desc.codec.into(),
+        realtime: video_desc.client_request_realtime_decoder,
+        dashboard_url: config_packet.dashboard_url.clone(),
+        ffr_param,
+    }
 }
 
 async fn control_connect_loop() -> (ProtoControlSocket, IpAddr) {

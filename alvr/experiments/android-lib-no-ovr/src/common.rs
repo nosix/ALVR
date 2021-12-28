@@ -48,8 +48,20 @@ pub struct ConnectionSettings {
     pub fps: f32,
     pub codec: AlvrCodec,
     pub realtime: bool,
-    pub dark_mode: bool,
     pub dashboard_url: String,
+    pub ffr_param: Option<FfrParam>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FfrParam {
+    pub eye_width: i32,
+    pub eye_height: i32,
+    pub center_size_x: f32,
+    pub center_size_y: f32,
+    pub center_shift_x: f32,
+    pub center_shift_y: f32,
+    pub edge_ratio_x: f32,
+    pub edge_ratio_y: f32,
 }
 
 #[derive(Debug, Serialize, Clone)]
