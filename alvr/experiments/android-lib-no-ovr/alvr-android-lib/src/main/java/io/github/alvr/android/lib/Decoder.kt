@@ -6,9 +6,9 @@ import android.media.MediaFormat
 import android.util.Log
 import io.github.alvr.android.lib.event.AlvrCodec
 import io.github.alvr.android.lib.gl.FfrParam
-import io.github.alvr.android.lib.gl.FfrRenderer
 import io.github.alvr.android.lib.gl.GlSurface
-import io.github.alvr.android.lib.gl.PassThroughRenderer
+import io.github.alvr.android.lib.gl.PASS_THROUGH_FRAGMENT_SHADER
+import io.github.alvr.android.lib.gl.Renderer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
@@ -83,11 +83,8 @@ class Decoder(
         Log.i(TAG, "The decoder has started.")
 
         try {
-            val renderer = if (ffrParam == null) {
-                PassThroughRenderer(surface, width, height)
-            } else {
-                FfrRenderer(surface, width, height, ffrParam)
-            }
+            val fragmentShaderCode = ffrParam?.getFragmentShader() ?: PASS_THROUGH_FRAGMENT_SHADER
+            val renderer = Renderer(surface, width, height, fragmentShaderCode)
             while (coroutineContext.isActive) {
                 val frameIndex = mUpdatedSignalChannel.receive()
                 renderer.render(frameSurface)
