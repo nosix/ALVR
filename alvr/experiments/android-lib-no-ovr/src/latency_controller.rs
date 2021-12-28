@@ -25,7 +25,7 @@ static CONTROLLER: Lazy<Mutex<LatencyController>> =
 
 struct FrameTimestampStoreFacade {
     sender: tmpsc::Sender<Action>,
-    instance: Mutex<FrameTimestampStore>
+    instance: Mutex<FrameTimestampStore>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -37,7 +37,7 @@ struct Action {
 #[derive(Copy, Clone, Debug)]
 enum ActTime {
     Tracking(u64),
-    Received(u64, u64),
+    Received(u64),
     EstimatedSent(u64, u64),
     ReceivedFirst(u64),
     ReceivedLast(u64),
@@ -64,10 +64,9 @@ pub fn tracking(frame_index: u64) {
     queue(frame_index, ActTime::Tracking(util::get_timestamp_us()));
 }
 
-/// Record estimated client time when the server sent a mode 3 TimeSync packet
-pub fn received(frame_index: u64, sent_time: u64) {
-    let current_time = util::get_timestamp_us();
-    queue(frame_index, ActTime::Received(sent_time, current_time));
+/// Record client time when received mode 3 TimeSync packet
+pub fn received(frame_index: u64) {
+    queue(frame_index, ActTime::Received(util::get_timestamp_us()));
 }
 
 /// Record estimated client time when the server sent first video frame
@@ -163,7 +162,7 @@ impl FrameTimestampStore {
     fn new(action_receiver: tmpsc::Receiver<Action>) -> Self {
         Self {
             action_receiver,
-            frames: FrameTimestampStore::frames_default()
+            frames: FrameTimestampStore::frames_default(),
         }
     }
 
@@ -186,14 +185,8 @@ impl FrameTimestampStore {
         debug!("tracking {} {}", frame_index, self.get_frame(frame_index).tracking);
     }
 
-    fn received(&mut self, frame_index: u64, sent_time: u64, received_time: u64) {
-        let tracking = self.get_frame(frame_index).tracking;
-        if tracking < sent_time && sent_time < received_time {
-            self.get_frame(frame_index).received = sent_time
-        } else {
-            warn!("received: The sent time is not included in the proper period. {} < {} < {}",
-                  tracking, sent_time, received_time);
-        }
+    fn received(&mut self, frame_index: u64, time: u64) {
+        self.get_frame(frame_index).received = time;
         debug!("received {} {}", frame_index, self.get_frame(frame_index).received);
     }
 
@@ -250,8 +243,8 @@ impl FrameTimestampStore {
                 ActTime::Tracking(time) => {
                     self.tracking(action.frame_index, time);
                 }
-                ActTime::Received(sent_time, received_time) => {
-                    self.received(action.frame_index, sent_time, received_time);
+                ActTime::Received(time) => {
+                    self.received(action.frame_index, time);
                 }
                 ActTime::EstimatedSent(estimated_sent_time, received_time) => {
                     self.estimated_sent(action.frame_index, estimated_sent_time, received_time);
@@ -284,7 +277,7 @@ impl FrameTimestampStore {
             true
         } else {
             false
-        }
+        };
     }
 }
 
@@ -299,9 +292,8 @@ struct LatencyController {
 
     server_total_latency: u32,
 
-    // Total/Transport/Decode latency
-    // Total/Max/Min/Count
-    latency: [u32; 4],
+    // Total/Transport/Decode/Sent/Idle latency
+    latency: [u64; 5],
 
     last_submit: u64,
     frames_in_second: f32,
@@ -321,7 +313,7 @@ impl LatencyController {
             fec_failure_in_second: 0,
             fec_failure_previous: 0,
             server_total_latency: 0,
-            latency: [0; 4],
+            latency: [0; 5],
 
             last_submit: 0,
             frames_in_second: 0.0,
@@ -337,19 +329,14 @@ impl LatencyController {
     fn submit(&mut self, timestamp: FrameTimestamp) -> bool {
         let mut invalid_timestamp = false;
 
-        if timestamp.estimated_sent > timestamp.received_last {
-            error!("invalid timestamp: {} estimated_sent {} > received_last {} ",
-                   timestamp.frame_index, timestamp.estimated_sent, timestamp.received_last);
-            invalid_timestamp = true;
-        }
-        if timestamp.decoder_input > timestamp.decoder_output {
-            error!("invalid timestamp: {} decoder_input {} > decoder_output {}",
-                   timestamp.frame_index, timestamp.decoder_input, timestamp.decoder_output);
-            invalid_timestamp = true;
-        }
         if timestamp.received != 0 && timestamp.tracking > timestamp.received {
             error!("invalid timestamp: {} tracking {} > received {}",
                    timestamp.frame_index, timestamp.tracking, timestamp.received);
+            invalid_timestamp = true;
+        }
+        if timestamp.received_first > timestamp.received_last {
+            error!("invalid timestamp: {} estimated_sent {} > received_last {} ",
+                   timestamp.frame_index, timestamp.estimated_sent, timestamp.received_last);
             invalid_timestamp = true;
         }
         if self.last_submit >= timestamp.submit {
@@ -362,14 +349,23 @@ impl LatencyController {
             return false;
         }
 
-        self.latency[0] = (timestamp.submit - timestamp.tracking) as u32;
-        self.latency[1] = (timestamp.received_last - timestamp.estimated_sent) as u32;
-        self.latency[2] = (timestamp.decoder_output - timestamp.decoder_input) as u32;
-        if timestamp.received != 0 {
-            self.latency[3] = (timestamp.received - timestamp.tracking) as u32;
+        self.latency[0] = timestamp.submit - timestamp.tracking;
+        self.latency[2] = if timestamp.decoder_input < timestamp.decoder_output {
+            timestamp.decoder_output - timestamp.decoder_input
         } else {
-            self.latency[3] = self.latency[1];
-        }
+            0
+        };
+        self.latency[3] = if timestamp.received != 0 {
+            (timestamp.received - timestamp.tracking) / 2
+        } else {
+            0
+        };
+        self.latency[4] = if timestamp.decoder_output < timestamp.rendered2 {
+            timestamp.rendered2 - timestamp.decoder_output
+        } else {
+            0
+        };
+        self.latency[1] = self.latency[3] + timestamp.received_last - timestamp.received_first;
 
         self.submit_new_frame();
 
@@ -447,10 +443,11 @@ impl LatencyController {
             packets_lost_total: self.packets_lost_total,
             packets_lost_in_second: self.packets_lost_in_second,
 
-            average_total_latency: self.latency[0],
-            average_send_latency: self.latency[3],
-            average_transport_latency: self.latency[1],
+            average_total_latency: self.latency[0] as u32,
+            average_send_latency: self.latency[3] as u32,
+            average_transport_latency: self.latency[1] as u32,
             average_decode_latency: self.latency[2],
+            idle_time: self.latency[4] as u32,
 
             fec_failure: if self.fec_failure_state { 1 } else { 0 },
             fec_failure_in_second: self.fec_failure_in_second,

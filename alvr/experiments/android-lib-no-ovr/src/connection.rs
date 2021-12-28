@@ -443,43 +443,53 @@ async fn tracking_loop(
     let mut deadline = Instant::now();
     let mut frame_index = 0;
     loop {
-        // unsafe { crate::onTrackingNative(tracking_clientside_prediction) };
         frame_index += 1;
-        let tracking = store::get_tracking()?;
-        let tracking_info = TrackingInfo {
-            client_time: util::get_timestamp_us(),
-            frame_index,
-            // TODO predicated_display_time
-            ipd: tracking.ipd,
-            eye_fov: [
-                EyeFov {
-                    left: tracking.l_eye_fov.left,
-                    right: tracking.l_eye_fov.right,
-                    top: tracking.l_eye_fov.top,
-                    bottom: tracking.l_eye_fov.bottom,
-                },
-                EyeFov {
-                    left: tracking.r_eye_fov.left,
-                    right: tracking.r_eye_fov.right,
-                    top: tracking.r_eye_fov.top,
-                    bottom: tracking.r_eye_fov.bottom,
+        let tracking_info = match store::get_tracking() {
+            Ok(tracking) => {
+                TrackingInfo {
+                    client_time: util::get_timestamp_us(),
+                    frame_index,
+                    // TODO predicated_display_time
+                    ipd: tracking.ipd,
+                    eye_fov: [
+                        EyeFov {
+                            left: tracking.l_eye_fov.left,
+                            right: tracking.l_eye_fov.right,
+                            top: tracking.l_eye_fov.top,
+                            bottom: tracking.l_eye_fov.bottom,
+                        },
+                        EyeFov {
+                            left: tracking.r_eye_fov.left,
+                            right: tracking.r_eye_fov.right,
+                            top: tracking.r_eye_fov.top,
+                            bottom: tracking.r_eye_fov.bottom,
+                        }
+                    ],
+                    battery: tracking.battery as u64,
+                    plugged: tracking.plugged as u64,
+                    head_pose_orientation: TrackingQuad {
+                        x: tracking.head_pose_orientation.x,
+                        y: tracking.head_pose_orientation.y,
+                        z: tracking.head_pose_orientation.z,
+                        w: tracking.head_pose_orientation.w,
+                    },
+                    head_pose_position: TrackingVector3 {
+                        x: tracking.head_pose_position.x,
+                        y: tracking.head_pose_position.y,
+                        z: tracking.head_pose_position.z,
+                    },
+                    // TODO controller
+                    ..Default::default()
                 }
-            ],
-            battery: tracking.battery as u64,
-            plugged: tracking.plugged as u64,
-            head_pose_orientation: TrackingQuad {
-                x: tracking.head_pose_orientation.x,
-                y: tracking.head_pose_orientation.y,
-                z: tracking.head_pose_orientation.z,
-                w: tracking.head_pose_orientation.w,
-            },
-            head_pose_position: TrackingVector3 {
-                x: tracking.head_pose_position.x,
-                y: tracking.head_pose_position.y,
-                z: tracking.head_pose_position.z,
-            },
-            // TODO controller
-            ..Default::default()
+            }
+            Err(e) => {
+                warn!("Tracking data not found: {}", e);
+                TrackingInfo {
+                    client_time: util::get_timestamp_us(),
+                    frame_index,
+                    ..Default::default()
+                }
+            }
         };
         latency_controller::tracking(frame_index);
         trace_err!(legacy_send_data_sender.send(tracking_info.into()))?;
@@ -628,7 +638,10 @@ mod tests {
     #[ignore]
     /// Please specify -- --ignored --nocapture to check the log.
     fn run() {
-        SimpleLogger::new().with_level(LevelFilter::Info).init().unwrap();
+        SimpleLogger::new()
+            .without_timestamps()
+            .with_level(LevelFilter::Info)
+            .init().unwrap();
         let runtime = tokio::runtime::Runtime::new().unwrap();
         let future = super::connect(&DEVICE, &IDENTITY).unwrap().unwrap();
         runtime.block_on(future).unwrap();
@@ -636,7 +649,10 @@ mod tests {
 
     #[test]
     fn connect_and_disconnect() {
-        SimpleLogger::new().with_level(LevelFilter::Info).init().unwrap();
+        SimpleLogger::new()
+            .without_timestamps()
+            .with_level(LevelFilter::Info)
+            .init().unwrap();
         {
             super::connect(&DEVICE, &IDENTITY).unwrap();
             super::connect(&DEVICE, &IDENTITY).unwrap();

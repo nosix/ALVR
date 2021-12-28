@@ -126,7 +126,7 @@ impl<P, S> StreamHandler<P, S> where P: Fn(Nal), S: Fn(Vec<u8>) {
                 self.send_time_sync(time_sync, current);
             }
             3 => {
-                latency_controller::received(time_sync.tracking_recv_frame_index, time_sync.server_time);
+                latency_controller::received(time_sync.tracking_recv_frame_index);
             }
             _ => {}
         }
