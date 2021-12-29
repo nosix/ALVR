@@ -37,16 +37,6 @@ import kotlinx.coroutines.yield
  *     _androidPlugInInstance?.Call("onAwake");
  * }
  *
- * private void OnEnable()
- * {
- *     _androidPlugInInstance?.Call("onEnable");
- * }
- *
- * private void OnDisable()
- * {
- *     _androidPlugInInstance?.Call("onDisable");
- * }
- *
  * private void OnApplicationPause(bool pauseStatus)
  * {
  *     _androidPlugInInstance?.Call("onApplicationPause", pauseStatus);
@@ -113,30 +103,14 @@ class UnityPlugin(activity: Activity) : LifecycleOwner {
         }
     }
 
-    fun onEnable() {
-        mScope.launch {
-            withContext(mContext.receive()) {
-                mLifecycle.onStart()
-            }
-        }
-    }
-
     fun onApplicationPause(pauseStatus: Boolean) {
         mScope.launch {
             withContext(mContext.receive()) {
                 if (pauseStatus) {
-                    mLifecycle.onPause()
+                    mLifecycle.onStop()
                 } else {
-                    mLifecycle.onResume()
+                    mLifecycle.onStart()
                 }
-            }
-        }
-    }
-
-    fun onDisable() {
-        mScope.launch {
-            withContext(mContext.receive()) {
-                mLifecycle.onStop()
             }
         }
     }
