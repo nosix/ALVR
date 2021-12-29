@@ -132,7 +132,9 @@ class GlContext(
 
     fun releaseSurfaceTexture(holder: SurfaceTextureHolder) = withMakeCurrent {
         holder.surfaceTexture.release()
-        deleteTextureInternal(holder.textureId)
+        holder.internalTextureId?.let { textureId ->
+            deleteTextureInternal(textureId)
+        }
     }
 
     fun createSurface(width: Int, height: Int): SurfaceHolder = withMakeCurrent {

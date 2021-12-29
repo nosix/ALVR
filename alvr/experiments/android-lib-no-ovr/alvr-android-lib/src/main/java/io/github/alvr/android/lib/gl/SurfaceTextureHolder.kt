@@ -10,6 +10,7 @@ sealed interface SurfaceTextureHolder {
     val width: Int
     val height: Int
     val surfaceTexture: SurfaceTexture
+    val internalTextureId: Int?
 
     /**
      * Update texture image
@@ -28,6 +29,8 @@ class ExternalOESSurfaceTexture(
 ) : SurfaceTextureHolder {
     override val target: Int = GLES11Ext.GL_TEXTURE_EXTERNAL_OES
 
+    override val internalTextureId: Int? = null
+
     override fun updateTexImage(): Int {
         surfaceTexture.updateTexImage()
         return GLES32.GL_NO_ERROR
@@ -39,14 +42,14 @@ class Texture2DSurfaceTexture(
     override val width: Int,
     override val height: Int,
     override val surfaceTexture: SurfaceTexture,
-    private val externalOesTextureId: Int
+    override val internalTextureId: Int
 ) : SurfaceTextureHolder {
     override val target: Int = GLES32.GL_TEXTURE_2D
 
     override fun updateTexImage(): Int {
         surfaceTexture.updateTexImage()
         GLES32.glCopyImageSubData(
-            externalOesTextureId,
+            internalTextureId,
             GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
             0, 0, 0, 0,
             textureId,
