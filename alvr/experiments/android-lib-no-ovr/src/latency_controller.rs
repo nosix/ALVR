@@ -194,7 +194,7 @@ impl FrameTimestampStore {
         self.get_frame(frame_index).estimated_sent = if estimated_sent_time < received_time {
             estimated_sent_time
         } else {
-            warn!("estimated_sent: The sent time is later than the receive time. {} < {}",
+            debug!("estimated_sent: The sent time is later than the receive time. {} < {}",
                   received_time, estimated_sent_time);
             received_time
         };
@@ -370,7 +370,6 @@ impl LatencyController {
         self.submit_new_frame();
 
         self.frames_in_second = 1000000.0 / (timestamp.submit - self.last_submit) as f32;
-        info!("fps: {} = {} - {}", self.frames_in_second, timestamp.submit, self.last_submit);
         self.last_submit = timestamp.submit;
 
         return true;

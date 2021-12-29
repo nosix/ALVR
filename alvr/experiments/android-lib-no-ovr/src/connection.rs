@@ -567,7 +567,6 @@ async fn playspace_sync_loop(
         //         .await
         //         .ok();
         // }
-        info!("send PlayspaceSync");
 
         time::sleep(PLAYSPACE_SYNC_INTERVAL).await;
     }
