@@ -9,16 +9,23 @@ import androidx.lifecycle.LifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import io.github.alvr.android.lib.gl.GlContext
+import io.github.alvr.android.lib.gl.SurfaceTextureHolder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
+import java.util.concurrent.Executors
+import kotlin.coroutines.coroutineContext
 
 /**
  * This class used from Unity.
@@ -66,7 +73,13 @@ class UnityPlugin(activity: Activity) : LifecycleOwner {
     private val mScope = CoroutineScope(Dispatchers.Main)
     private val mContext = MutableStateFlow<GlContext?>(null)
     private val mLifecycle = PluginLifecycle(this)
-    private val mAlvrClient = AlvrClient()
+
+    private val mAlvrClient = AlvrClient(
+        Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+    )
+
+    private var mSurfaceTexture: SurfaceTextureHolder? = null
+    private var mCopyJob: Job? = null
 
     init {
         attach()
@@ -108,8 +121,17 @@ class UnityPlugin(activity: Activity) : LifecycleOwner {
             withContext(mContext.receive()) {
                 if (pauseStatus) {
                     mLifecycle.onStop()
+                    mCopyJob?.let { job ->
+                        mCopyJob = null
+                        job.cancelAndJoin()
+                    }
                 } else {
                     mLifecycle.onStart()
+                    mSurfaceTexture?.let { texture ->
+                        if (mCopyJob == null) {
+                            mCopyJob = launch { copyTexture(texture) }
+                        }
+                    }
                 }
             }
         }
@@ -125,37 +147,50 @@ class UnityPlugin(activity: Activity) : LifecycleOwner {
         mScope.launch {
             withContext(mContext.receive()) {
                 val context = checkNotNull(coroutineContext[GlContext.Key])
-                var isFrameAvailable = false
                 val texture = context.createSurfaceTexture(textureId, width, height)
-                texture.surfaceTexture.setOnFrameAvailableListener {
-                    isFrameAvailable = true
-                }
-                val surface = Surface(texture.surfaceTexture)
-                try {
-                    mAlvrClient.attachScreen(surface, width, height)
-                    while (true) {
-                        // TODO use channel
-                        if (!isFrameAvailable) {
-                            delay(16)
-                            continue
-                        }
-                        isFrameAvailable = false
-                        context.withMakeCurrent {
-                            texture.updateTexImage()
-                        }
-                        yield()
-                    }
-                } finally {
-                    surface.release()
-                    context.releaseSurfaceTexture(texture)
-                }
+                mSurfaceTexture = texture
+                mCopyJob = launch { copyTexture(texture) }
             }
+        }
+    }
+
+    private suspend fun copyTexture(texture: SurfaceTextureHolder) {
+        val context = checkNotNull(coroutineContext[GlContext.Key])
+        var isFrameAvailable = false
+        texture.surfaceTexture.setOnFrameAvailableListener {
+            isFrameAvailable = true
+        }
+        val surface = Surface(texture.surfaceTexture)
+        try {
+            mAlvrClient.attachScreen(surface, texture.width, texture.height) {
+                surface.release()
+            }
+            while (coroutineContext.isActive) {
+                // TODO use channel
+                if (!isFrameAvailable) {
+                    delay(16)
+                    continue
+                }
+                isFrameAvailable = false
+                context.withMakeCurrent {
+                    texture.updateTexImage()
+                }
+                yield()
+            }
+        } finally {
+            mAlvrClient.detachScreen()
         }
     }
 
     fun detachTexture() {
         mScope.launch {
-            mAlvrClient.detachSurface()
+            withContext(mContext.receive()) {
+                mSurfaceTexture?.let { texture ->
+                    val context = checkNotNull(kotlin.coroutines.coroutineContext[GlContext.Key])
+                    context.releaseSurfaceTexture(texture)
+                    mSurfaceTexture = null
+                }
+            }
         }
     }
 

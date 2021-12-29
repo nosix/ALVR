@@ -33,25 +33,32 @@ class Decoder(
     private val mUpdatedSignalChannel = Channel<Long>() // FIXME Do not create a Long instance
     private var mDecodeJob: Job? = null
 
+    private val isActive: Boolean
+        get() = mDecodeJob != null
+
     fun start(
         videoFormat: AlvrCodec,
         isRealTime: Boolean,
         surface: GlSurface,
         width: Int,
         height: Int,
-        ffrParam: FfrParam?
+        ffrParam: FfrParam?,
+        onFinished: () -> Unit
     ) {
         mScope.launch {
             mDecodeJob?.cancelAndJoin()
             mDecodeJob = launch {
-                decodeStream(videoFormat, isRealTime, surface, width, height, ffrParam)
+                decodeStream(videoFormat, isRealTime, surface, width, height, ffrParam, onFinished)
             }
         }
     }
 
     fun stop() {
         mScope.launch {
-            mDecodeJob?.cancelAndJoin()
+            mDecodeJob?.let { job ->
+                mDecodeJob = null
+                job.cancelAndJoin()
+            }
         }
     }
 
@@ -61,7 +68,8 @@ class Decoder(
         surface: GlSurface,
         width: Int,
         height: Int,
-        ffrParam: FfrParam?
+        ffrParam: FfrParam?,
+        onFinished: () -> Unit
     ) {
         val frameSurface = surface.context.createSurface(width, height)
         val format = MediaFormat.createVideoFormat(videoFormat.mime, width, height).apply {
@@ -80,7 +88,7 @@ class Decoder(
             configure(format, frameSurface.surface, null, 0)
         }
         codec.start()
-        Log.i(TAG, "The decoder has started.")
+        Log.i(TAG, "The codec has started.")
 
         try {
             val fragmentShaderCode = ffrParam?.getFragmentShader() ?: PASS_THROUGH_FRAGMENT_SHADER
@@ -95,6 +103,7 @@ class Decoder(
             codec.release()
             surface.context.releaseSurface(frameSurface)
             surface.release()
+            onFinished()
             Log.i(TAG, "The codec has stopped.")
         }
     }
@@ -106,6 +115,7 @@ class Decoder(
         override fun onInputBufferAvailable(
             codec: MediaCodec, index: Int
         ) {
+            if (!isActive) return
             val buffer: ByteBuffer = codec.getInputBuffer(index) ?: return
             // TODO recycle InputBuffer object
             val wrapper = InputBuffer(buffer, index, codec, mFrameMap)
@@ -115,6 +125,7 @@ class Decoder(
         override fun onOutputBufferAvailable(
             codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo
         ) {
+            if (!isActive) return
             codec.releaseOutputBuffer(index, true)
             val frameIndex = mFrameMap.remove(info.presentationTimeUs)
             if (frameIndex != 0L) {

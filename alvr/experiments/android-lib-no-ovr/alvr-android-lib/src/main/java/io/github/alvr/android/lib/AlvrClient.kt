@@ -54,16 +54,16 @@ class AlvrClient(
         mDataProducer = producer
     }
 
-    fun attachScreen(surface: Surface, width: Int, height: Int) {
+    fun attachScreen(surface: Surface, width: Int, height: Int, onDetached: () -> Unit) {
         if (!mIsReady) {
             throw RuntimeException("The decoder is not ready.")
         }
-        check(mScreenChannel.trySend(Screen(surface, width, height)).isSuccess) {
+        check(mScreenChannel.trySend(Screen(surface, width, height, onDetached)).isSuccess) {
             "Screen could not be attached."
         }
     }
 
-    fun detachSurface() {
+    fun detachScreen() {
         if (!mIsReady) {
             throw RuntimeException("The decoder is not ready.")
         }
@@ -126,11 +126,12 @@ class AlvrClient(
                             GlSurface(context, screen.surface),
                             screen.width,
                             screen.height,
-                            settings.ffrParam
+                            settings.ffrParam,
+                            screen.onDetached
                         )
                     }
                 } finally {
-                    mDecoder.stop()
+                    mDecoder.stop() // may not be needed
                 }
             }
         }

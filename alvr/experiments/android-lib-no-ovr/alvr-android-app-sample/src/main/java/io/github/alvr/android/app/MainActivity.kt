@@ -7,7 +7,6 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
-import android.view.View
 import io.github.alvr.android.lib.AlvrClient
 import io.github.alvr.android.lib.DeviceSettings
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -69,7 +68,7 @@ class MainActivity : AppCompatActivity() {
             override fun surfaceCreated(holder: SurfaceHolder) {
                 val rect = holder.surfaceFrame
                 Log.d(TAG, "surfaceCreated $rect")
-                mAlvrClient.attachScreen(holder.surface, rect.width(), rect.height())
+                mAlvrClient.attachScreen(holder.surface, rect.width(), rect.height()) {}
             }
 
             override fun surfaceChanged(
@@ -84,7 +83,7 @@ class MainActivity : AppCompatActivity() {
 
             override fun surfaceDestroyed(holder: SurfaceHolder) {
                 Log.d(TAG, "surfaceDestroyed")
-                mAlvrClient.detachSurface()
+                mAlvrClient.detachScreen()
             }
         })
     }

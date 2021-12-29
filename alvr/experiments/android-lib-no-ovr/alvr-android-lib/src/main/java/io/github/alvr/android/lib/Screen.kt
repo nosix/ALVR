@@ -5,5 +5,6 @@ import android.view.Surface
 class Screen(
     val surface: Surface,
     val width: Int,
-    val height: Int
+    val height: Int,
+    val onDetached: () -> Unit
 )
