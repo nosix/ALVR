@@ -7,7 +7,6 @@ import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import java.nio.ShortBuffer
 
-const val COORDS_3D = 3
 const val COORDS_2D = 2
 
 fun loadShader(type: Int, shaderCode: String): Int {
