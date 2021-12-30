@@ -15,14 +15,14 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.yield
 import java.util.concurrent.Executors
 import kotlin.coroutines.coroutineContext
 
@@ -157,10 +157,9 @@ class UnityPlugin(activity: Activity) : LifecycleOwner {
     private suspend fun copyTexture(texture: Texture) {
         val context = checkNotNull(coroutineContext[GlContext.Key])
         val holder = context.createSurfaceTexture(texture.textureId, texture.width, texture.height)
-
-        var isFrameAvailable = false
+        val notifyChannel = Channel<Unit>(1, BufferOverflow.DROP_OLDEST)
         holder.surfaceTexture.setOnFrameAvailableListener {
-            isFrameAvailable = true
+            notifyChannel.trySend(Unit)
         }
         val surface = Surface(holder.surfaceTexture)
         try {
@@ -169,16 +168,10 @@ class UnityPlugin(activity: Activity) : LifecycleOwner {
                 context.releaseSurfaceTexture(holder)
             }
             while (coroutineContext.isActive) {
-                // TODO use channel
-                if (!isFrameAvailable) {
-                    delay(16)
-                    continue
-                }
-                isFrameAvailable = false
+                notifyChannel.receive()
                 context.withMakeCurrent {
                     holder.updateTexImage()
                 }
-                yield()
             }
         } finally {
             mAlvrClient.detachScreen()
