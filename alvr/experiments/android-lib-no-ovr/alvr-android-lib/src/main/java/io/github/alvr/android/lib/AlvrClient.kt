@@ -14,20 +14,26 @@ import io.github.alvr.android.lib.event.ConnectionEvent
 import io.github.alvr.android.lib.event.ConnectionSettings
 import io.github.alvr.android.lib.gl.GlContext
 import io.github.alvr.android.lib.gl.GlSurface
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlin.coroutines.CoroutineContext
 
 class AlvrClient(
-    context: CoroutineContext = Dispatchers.Main + GlContext()
+    context: CoroutineContext = Dispatchers.Main + GlContext(),
+    eventObserverContext: CoroutineContext = Dispatchers.Main
 ) : DefaultLifecycleObserver {
 
     companion object {
         private val TAG = AlvrClient::class.simpleName
     }
+
+    private val mEventObserverScope = CoroutineScope(eventObserverContext)
 
     private val mCoroutineContext: CoroutineContext =
         if (context[GlContext.Key] == null) {
@@ -42,6 +48,7 @@ class AlvrClient(
     private lateinit var mNativeApi: NativeApi
     private lateinit var mDecoder: Decoder
     private var mIsReady = false
+    private var mEventObserver: ClientEventObserver? = null
 
     private val mSettingsChannel = Channel<ConnectionSettings>(1, BufferOverflow.DROP_OLDEST)
     private val mScreenChannel = Channel<Screen>(1, BufferOverflow.DROP_OLDEST)
@@ -69,6 +76,16 @@ class AlvrClient(
         }
         Log.i(TAG, "Stop the decoder")
         mDecoder.stop()
+    }
+
+    fun setEventObserver(observer: ClientEventObserver?) {
+        mEventObserver = observer
+    }
+
+    private fun notifyClientEvent(eventJson: String) {
+        mEventObserverScope.launch {
+            mEventObserver?.onEventOccurred(eventJson)
+        }
     }
 
     override fun onCreate(owner: LifecycleOwner) {
@@ -102,6 +119,7 @@ class AlvrClient(
                 }
                 else -> Log.i(TAG, event.toString())
             }
+            notifyClientEvent(Json.encodeToString(event))
         })
 
         mDecoder = Decoder(

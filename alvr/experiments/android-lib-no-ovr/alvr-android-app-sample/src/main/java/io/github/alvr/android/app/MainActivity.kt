@@ -7,7 +7,9 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import android.widget.Toast
 import io.github.alvr.android.lib.AlvrClient
+import io.github.alvr.android.lib.ClientEventObserver
 import io.github.alvr.android.lib.DeviceSettings
 import kotlinx.coroutines.asCoroutineDispatcher
 import java.util.concurrent.Executors
@@ -32,12 +34,19 @@ class MainActivity : AppCompatActivity() {
         )
     )
 
+    private val mEventObserver = object : ClientEventObserver {
+        override fun onEventOccurred(eventJson: String) {
+            Toast.makeText(this@MainActivity, eventJson, Toast.LENGTH_LONG).show()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
         mAlvrClient.attachPreference(getPreferences(Context.MODE_PRIVATE))
         mAlvrClient.attachDeviceDataProducer(mDataProducer)
+        mAlvrClient.setEventObserver(mEventObserver)
         lifecycle.addObserver(mAlvrClient)
         lifecycle.addObserver(mDataProducer)
     }
