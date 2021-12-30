@@ -70,7 +70,7 @@ class UnityPlugin(activity: Activity) : LifecycleOwner {
     }
 
     private val mScope = CoroutineScope(Dispatchers.Main)
-    private val mContext = MutableStateFlow<GlContext?>(null)
+    private val mGlContext = MutableStateFlow<GlContext?>(null)
     private val mLifecycle = PluginLifecycle(this)
 
     private val mAlvrClient = AlvrClient(
@@ -102,36 +102,37 @@ class UnityPlugin(activity: Activity) : LifecycleOwner {
         }
 
         mScope.launch {
-            mContext.value = GlContext(unityContext)
+            mGlContext.value = GlContext(unityContext)
         }
     }
 
-    private suspend fun MutableStateFlow<GlContext?>.receive(): GlContext = filterNotNull().first()
+    private fun CoroutineScope.launchWithGlContext(action: suspend CoroutineScope.() -> Unit): Job {
+        return launch {
+            // Wait until GlContext is ready
+            withContext(mGlContext.filterNotNull().first(), action)
+        }
+    }
 
     fun onAwake() {
-        mScope.launch {
-            withContext(mContext.receive()) {
-                mLifecycle.addObserver(mAlvrClient)
-                mLifecycle.onCreate()
-            }
+        mScope.launchWithGlContext {
+            mLifecycle.addObserver(mAlvrClient)
+            mLifecycle.onCreate()
         }
     }
 
     fun onApplicationPause(pauseStatus: Boolean) {
-        mScope.launch {
-            withContext(mContext.receive()) {
-                if (pauseStatus) {
-                    mLifecycle.onStop()
-                    mCopyJob?.let { job ->
-                        mCopyJob = null
-                        job.cancelAndJoin()
-                    }
-                } else {
-                    mLifecycle.onStart()
-                    mTexture?.let { texture ->
-                        if (mCopyJob == null) {
-                            mCopyJob = launch { copyTexture(texture) }
-                        }
+        mScope.launchWithGlContext {
+            if (pauseStatus) {
+                mLifecycle.onStop()
+                mCopyJob?.let { job ->
+                    mCopyJob = null
+                    job.cancelAndJoin()
+                }
+            } else {
+                mLifecycle.onStart()
+                mTexture?.let { texture ->
+                    if (mCopyJob == null) {
+                        mCopyJob = launch { copyTexture(texture) }
                     }
                 }
             }
@@ -141,25 +142,23 @@ class UnityPlugin(activity: Activity) : LifecycleOwner {
     fun onDestroy() {
         mScope.cancel()
         mLifecycle.onDestroy()
-        mContext.value?.close()
+        mGlContext.value?.close()
     }
 
     fun attachTexture(textureId: Int, width: Int, height: Int) {
-        mScope.launch {
-            withContext(mContext.receive()) {
-                val texture = Texture(textureId, width, height)
-                mTexture = texture
-                mCopyJob = launch { copyTexture(texture) }
-            }
+        mScope.launchWithGlContext {
+            val texture = Texture(textureId, width, height)
+            mTexture = texture
+            mCopyJob = launch { copyTexture(texture) }
         }
     }
 
     private suspend fun copyTexture(texture: Texture) {
         val context = checkNotNull(coroutineContext[GlContext.Key])
         val holder = context.createSurfaceTexture(texture.textureId, texture.width, texture.height)
-        val notifyChannel = Channel<Unit>(1, BufferOverflow.DROP_OLDEST)
+        val frameAvailable = Channel<Unit>(1, BufferOverflow.DROP_OLDEST)
         holder.surfaceTexture.setOnFrameAvailableListener {
-            notifyChannel.trySend(Unit)
+            frameAvailable.trySend(Unit)
         }
         val surface = Surface(holder.surfaceTexture)
         try {
@@ -168,7 +167,7 @@ class UnityPlugin(activity: Activity) : LifecycleOwner {
                 context.releaseSurfaceTexture(holder)
             }
             while (coroutineContext.isActive) {
-                notifyChannel.receive()
+                frameAvailable.receive()
                 context.withMakeCurrent {
                     holder.updateTexImage()
                 }
@@ -179,10 +178,8 @@ class UnityPlugin(activity: Activity) : LifecycleOwner {
     }
 
     fun detachTexture() {
-        mScope.launch {
-            withContext(mContext.receive()) {
-                mTexture = null
-            }
+        mScope.launchWithGlContext {
+            mTexture = null
         }
     }
 
