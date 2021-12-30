@@ -183,6 +183,10 @@ class UnityPlugin(activity: Activity) : LifecycleOwner {
         }
     }
 
+    fun setEventObserver(observer: ClientEventObserver?) {
+        mAlvrClient.setEventObserver(observer)
+    }
+
     override fun getLifecycle(): Lifecycle = mLifecycle
 
     private class PluginLifecycle(owner: LifecycleOwner) : Lifecycle() {
