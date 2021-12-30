@@ -12,7 +12,7 @@ class InputBuffer(
 ) {
     init {
         if (!buffer.isDirect) {
-            throw RuntimeException("InputBuffer must be direct.")
+            throw IllegalStateException("InputBuffer must be direct.")
         }
     }
 
