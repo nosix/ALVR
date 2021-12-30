@@ -120,6 +120,7 @@ async fn connection_lifecycle_loop(
                     },
                     Ok(_) => ()
                 }
+                buffer_queue::terminate_loop();
                 // TODO Do I need the following?
                 // // let any running task or socket shutdown
                 // time::sleep(CLEANUP_PAUSE).await; // 500 msec

@@ -29,8 +29,9 @@ use jni::{
 use std::ffi::c_void;
 
 #[no_mangle]
-pub unsafe extern "system" fn JNI_OnLoad(_vm: *const JavaVM, _reserved: *const c_void) -> jint {
+pub unsafe extern "system" fn JNI_OnLoad(vm: JavaVM, _reserved: *const c_void) -> jint {
     logging_backend::init_logging();
+    buffer_queue::set_vm(vm);
     JNIVersion::V6.into()
 }
 
@@ -93,9 +94,6 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onStart(
     _: JObject,
 ) {
     catch_err!({
-        let vm = trace_err!(env.get_java_vm())?;
-        buffer_queue::set_vm(vm);
-
         let device = trace_err!(store::get_device())?;
         let identity = trace_err!(store::get_identity())?;
         trace_err!(connection::connect(device, identity))?;

@@ -124,7 +124,6 @@ pub fn buffer_coordination_loop() -> task::JoinHandle<StrResult> {
 pub fn terminate_loop() {
     *INPUT_BUFFER_SENDER.lock() = None;
     *NAL_SENDER.lock() = None;
-    *JAVA_VM.lock() = None;
     WAITING_INPUT_BUFFER.lock().clear();
     IDR_PARSED.store(false, Ordering::Relaxed);
     info!("terminate buffer_queue");

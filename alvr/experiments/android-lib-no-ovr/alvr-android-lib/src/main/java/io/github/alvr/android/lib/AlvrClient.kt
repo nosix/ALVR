@@ -13,7 +13,6 @@ import io.github.alvr.android.lib.AlvrPreferences.Companion.set
 import io.github.alvr.android.lib.event.ConnectionEvent
 import io.github.alvr.android.lib.event.ConnectionSettings
 import io.github.alvr.android.lib.gl.GlContext
-import io.github.alvr.android.lib.gl.GlSurface
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
@@ -114,8 +113,12 @@ class AlvrClient(
                         "Settings could not be attached."
                     }
                 }
+                ConnectionEvent.ServerRestart -> {
+                    mDecoder.pause()
+                }
                 is ConnectionEvent.Error -> {
                     Log.e(TAG, event.toString())
+                    mDecoder.pause()
                 }
                 else -> Log.i(TAG, event.toString())
             }
@@ -135,21 +138,21 @@ class AlvrClient(
                     val context = checkNotNull(coroutineContext[GlContext.Key]) {
                         "GlContext is not set to CoroutineContext."
                     }
+                    var prevScreen: Screen? = null
                     while (isActive) {
                         val settings = mSettingsChannel.receive()
                         val screen = mScreenChannel.receive()
-                        mDecoder.start(
-                            settings.codec,
-                            settings.realtime,
-                            GlSurface(context, screen.surface),
-                            screen.width,
-                            screen.height,
-                            settings.ffrParam,
-                            screen.onDetached
-                        )
+                        // Continue to use the same Screen if no new Screen is received
+                        mScreenChannel.trySend(screen)
+                        if (screen != prevScreen) {
+                            mDecoder.start(settings, context, screen)
+                            prevScreen = screen
+                        } else {
+                            mDecoder.restart(settings)
+                        }
                     }
                 } finally {
-                    mDecoder.stop() // may not be needed
+                    mDecoder.stop() // May not be needed
                 }
             }
         }
