@@ -35,7 +35,7 @@ class Decoder(
     private val mPauseSignal = Channel<Unit>(1)
     private val mSettingsChannel = Channel<ConnectionSettings>(1, BufferOverflow.DROP_OLDEST)
     private var mDecodeJob: Job? = null
-    private var isActive: Boolean = false
+    private var mIsActive: Boolean = false
 
     fun start(settings: ConnectionSettings, context: GlContext, screen: Screen) {
         mScope.launch {
@@ -103,7 +103,7 @@ class Decoder(
             configure(format, frameSurface.surface, null, 0)
         }
         codec.start()
-        isActive = true
+        mIsActive = true
         Log.i(TAG, "The codec has started.")
 
         try {
@@ -120,7 +120,7 @@ class Decoder(
                 onRendered(frameIndex)
             }
         } finally {
-            isActive = false
+            mIsActive = false
             codec.stop()
             codec.release()
             surface.context.releaseSurface(frameSurface)
@@ -145,7 +145,7 @@ class Decoder(
         override fun onInputBufferAvailable(
             codec: MediaCodec, index: Int
         ) {
-            if (!isActive) return
+            if (!mIsActive) return
             val buffer: ByteBuffer = codec.getInputBuffer(index) ?: return
             // TODO recycle InputBuffer object
             val wrapper = InputBuffer(buffer, index, codec, mFrameMap)
@@ -155,7 +155,7 @@ class Decoder(
         override fun onOutputBufferAvailable(
             codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo
         ) {
-            if (!isActive) return
+            if (!mIsActive) return
             codec.releaseOutputBuffer(index, true)
             val frameIndex = mFrameMap.remove(info.presentationTimeUs)
             if (frameIndex != 0L) {
