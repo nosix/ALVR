@@ -88,6 +88,7 @@ class MainActivity : AppCompatActivity() {
             ) {
                 val rect = holder.surfaceFrame
                 Log.d(TAG, "surfaceChanged $rect")
+                mAlvrClient.attachScreen(holder.surface, rect.width(), rect.height()) {}
             }
 
             override fun surfaceDestroyed(holder: SurfaceHolder) {
