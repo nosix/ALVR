@@ -143,7 +143,7 @@ class AlvrClient(
                         val settings = mSettingsChannel.receive()
                         val screen = mScreenChannel.receive()
                         // Continue to use the same Screen if no new Screen is received
-                        mScreenChannel.trySend(screen)
+                        mScreenChannel.send(screen)
                         if (screen != prevScreen) {
                             mDecoder.start(settings, context, screen)
                             prevScreen = screen
