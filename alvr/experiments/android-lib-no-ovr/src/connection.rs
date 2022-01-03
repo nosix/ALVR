@@ -5,11 +5,10 @@ use crate::{
         ConnectionError, ConnectionEvent, ConnectionSettings,
         FfrParam,
     },
-    device::Device,
+    device::{self, Device},
     legacy_packets::*,
     legacy_stream::StreamHandler,
     latency_controller,
-    store,
     util,
 };
 use alvr_common::{
@@ -450,7 +449,7 @@ async fn time_sync_loop(
     legacy_send_data_sender: tmpsc::UnboundedSender<Vec<u8>>,
 ) -> StrResult {
     while let Some(frame_index) = rendered_receiver.recv().await {
-        latency_controller::rendered(frame_index);
+        latency_controller::rendered2(frame_index);
         if latency_controller::submit(frame_index) {
             // TimeSync here might be an issue but it seems to work fine
             let time_sync = latency_controller::new_time_sync();
@@ -469,7 +468,7 @@ async fn tracking_loop(
     let mut frame_index = 0;
     loop {
         frame_index += 1;
-        let tracking_info = match store::get_tracking() {
+        let tracking_info = match device::get_tracking(frame_index) {
             Ok(tracking) => {
                 TrackingInfo {
                     client_time: util::get_timestamp_us(),

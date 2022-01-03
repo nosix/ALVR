@@ -24,7 +24,7 @@ class MainActivity : AppCompatActivity() {
         Executors.newSingleThreadExecutor().asCoroutineDispatcher()
     )
 
-    private val mDataProducer = DeviceDataProducerImpl(
+    private val mDeviceAdapter = DeviceAdapterImpl(
         DeviceSettings(
             name = "Android ALVR",
             recommendedEyeWidth = 1920,
@@ -45,24 +45,24 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         mAlvrClient.attachPreference(getPreferences(Context.MODE_PRIVATE))
-        mAlvrClient.attachDeviceDataProducer(mDataProducer)
+        mAlvrClient.attachDeviceAdapter(mDeviceAdapter)
         mAlvrClient.setEventObserver(mEventObserver)
         lifecycle.addObserver(mAlvrClient)
-        lifecycle.addObserver(mDataProducer)
+        lifecycle.addObserver(mDeviceAdapter)
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         when (event.keyCode) {
-            KeyEvent.KEYCODE_W -> mDataProducer.moveToUp = event.isOn
-            KeyEvent.KEYCODE_A -> mDataProducer.moveToLeft = event.isOn
-            KeyEvent.KEYCODE_S -> mDataProducer.moveToDown = event.isOn
-            KeyEvent.KEYCODE_D -> mDataProducer.moveToRight = event.isOn
-            KeyEvent.KEYCODE_R -> mDataProducer.moveToBack = event.isOn
-            KeyEvent.KEYCODE_F -> mDataProducer.moveToForward = event.isOn
-            KeyEvent.KEYCODE_I -> mDataProducer.rotateUp = event.isOn
-            KeyEvent.KEYCODE_J -> mDataProducer.rotateLeft = event.isOn
-            KeyEvent.KEYCODE_K -> mDataProducer.rotateDown = event.isOn
-            KeyEvent.KEYCODE_L -> mDataProducer.rotateRight = event.isOn
+            KeyEvent.KEYCODE_W -> mDeviceAdapter.moveToUp = event.isOn
+            KeyEvent.KEYCODE_A -> mDeviceAdapter.moveToLeft = event.isOn
+            KeyEvent.KEYCODE_S -> mDeviceAdapter.moveToDown = event.isOn
+            KeyEvent.KEYCODE_D -> mDeviceAdapter.moveToRight = event.isOn
+            KeyEvent.KEYCODE_R -> mDeviceAdapter.moveToBack = event.isOn
+            KeyEvent.KEYCODE_F -> mDeviceAdapter.moveToForward = event.isOn
+            KeyEvent.KEYCODE_I -> mDeviceAdapter.rotateUp = event.isOn
+            KeyEvent.KEYCODE_J -> mDeviceAdapter.rotateLeft = event.isOn
+            KeyEvent.KEYCODE_K -> mDeviceAdapter.rotateDown = event.isOn
+            KeyEvent.KEYCODE_L -> mDeviceAdapter.rotateRight = event.isOn
         }
         return super.dispatchKeyEvent(event)
     }

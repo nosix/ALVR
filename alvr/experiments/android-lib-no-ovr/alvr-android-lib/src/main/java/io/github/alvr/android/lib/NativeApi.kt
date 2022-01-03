@@ -18,7 +18,7 @@ class NativeApi {
      */
     external fun initPreferences(preferences: AlvrPreferences): Boolean
 
-    external fun setDeviceDataProducer(producer: DeviceDataProducer)
+    external fun setDeviceAdapter(adapter: DeviceAdapter)
     external fun setConnectionObserver(observer: ConnectionObserver)
 
     external fun onStart()

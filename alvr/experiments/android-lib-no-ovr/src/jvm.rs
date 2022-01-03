@@ -3,7 +3,6 @@ use crate::{
     connection::ConnectionObserver,
     device::*,
     nal::Nal,
-    store::DeviceDataProducer,
 };
 use alvr_common::prelude::*;
 use bytes::Bytes;
@@ -243,21 +242,21 @@ impl ConnectionObserver for JConnectionObserver {
     }
 }
 
-pub struct JDeviceDataProducer {
+pub struct JDeviceAdapter {
     vm: JavaVM,
     object: GlobalRef,
 }
 
-impl JDeviceDataProducer {
+impl JDeviceAdapter {
     pub fn new(env: &JNIEnv, object: JObject) -> StrResult<Self> {
-        Ok(JDeviceDataProducer {
+        Ok(JDeviceAdapter {
             vm: trace_err!(env.get_java_vm())?,
             object: trace_err!(env.new_global_ref(object))?,
         })
     }
 }
 
-impl DeviceDataProducer for JDeviceDataProducer {
+impl DeviceAdapter for JDeviceAdapter {
     fn get_device(&self) -> StrResult<Device> {
         let env = trace_err!(self.vm.attach_current_thread_permanently())?;
         let ret = trace_err!(env.call_method(
@@ -276,13 +275,15 @@ impl DeviceDataProducer for JDeviceDataProducer {
         })
     }
 
-    fn get_tracking(&self) -> StrResult<Tracking> {
+    fn get_tracking(&self, frame_index: u64) -> StrResult<Tracking> {
         let env = trace_err!(self.vm.attach_current_thread_permanently())?;
         let ret = trace_err!(env.call_method(
             &self.object,
             "getTracking",
-            "()Lio/github/alvr/android/lib/Tracking;",
-            &[]
+            "(J)Lio/github/alvr/android/lib/Tracking;",
+            &[
+                (frame_index as i64).into()
+            ]
         ))?;
         let tracking = JTracking::new(env, ret.l().unwrap());
         let eye_fov = tracking.get_eye_fov();
@@ -315,6 +316,19 @@ impl DeviceDataProducer for JDeviceDataProducer {
                 z: head_pose[6],
             },
         })
+    }
+
+    fn on_rendered(&self, frame_index: u64) -> StrResult<()> {
+        let env = trace_err!(self.vm.attach_current_thread_permanently())?;
+        trace_err!(env.call_method(
+            &self.object,
+            "onRendered",
+            "(J)V",
+            &[
+                (frame_index as i64).into()
+            ]
+        ))?;
+        Ok(())
     }
 }
 

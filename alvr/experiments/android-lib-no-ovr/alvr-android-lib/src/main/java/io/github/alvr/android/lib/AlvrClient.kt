@@ -42,7 +42,7 @@ class AlvrClient(
         }
 
     private var mSharedPreferences: SharedPreferences? = null
-    private var mDataProducer: DeviceDataProducer? = null
+    private var mAdapter: DeviceAdapter? = null
 
     private lateinit var mNativeApi: NativeApi
     private lateinit var mDecoder: Decoder
@@ -56,8 +56,8 @@ class AlvrClient(
         mSharedPreferences = shardPref
     }
 
-    fun attachDeviceDataProducer(producer: DeviceDataProducer) {
-        mDataProducer = producer
+    fun attachDeviceAdapter(adapter: DeviceAdapter) {
+        mAdapter = adapter
     }
 
     fun attachScreen(surface: Surface, width: Int, height: Int, onDetached: () -> Unit) {
@@ -101,7 +101,7 @@ class AlvrClient(
             shardPref.set(preferences)
             Log.i(TAG, "save $preferences")
         }
-        mDataProducer?.attach(mNativeApi)
+        mAdapter?.attach(mNativeApi)
         mNativeApi.setConnectionObserver(ConnectionObserver { event ->
             when (event) {
                 is ConnectionEvent.ServerFound -> {

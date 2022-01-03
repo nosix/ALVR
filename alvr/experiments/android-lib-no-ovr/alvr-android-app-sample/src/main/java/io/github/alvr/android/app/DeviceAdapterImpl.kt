@@ -7,22 +7,27 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.google.ar.sceneform.math.Quaternion
 import com.google.ar.sceneform.math.Vector3
-import io.github.alvr.android.lib.DeviceDataProducer
+import io.github.alvr.android.lib.DeviceAdapter
 import io.github.alvr.android.lib.DeviceSettings
 import io.github.alvr.android.lib.Tracking
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-class DeviceDataProducerImpl(
-    override val deviceSettings: DeviceSettings
-) : DeviceDataProducer(), DefaultLifecycleObserver {
-    override val tracking = Tracking().apply {
+class DeviceAdapterImpl(
+    private val deviceSettings: DeviceSettings
+) : DeviceAdapter(), DefaultLifecycleObserver {
+
+    private val tracking = Tracking().apply {
         ipd = 0.068606f
         battery = 100
         plugged = true
         setEyeFov(52f)
     }
+
+    override fun getDeviceSettings(): DeviceSettings = deviceSettings
+    override fun getTracking(frameIndex: Long): Tracking = tracking
+    override fun onRendered(frameIndex: Long) {}
 
     private var mHeadPoseOrientation = Quaternion()
     private var mHeadPostPosition = Vector3()

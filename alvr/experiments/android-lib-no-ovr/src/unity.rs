@@ -1,7 +1,6 @@
 use crate::{
     catch_err,
-    device::{Device, Tracking},
-    store::{self, DeviceDataProducer},
+    device::{self, Device, DeviceAdapter, Tracking},
 };
 use alvr_common::prelude::*;
 use jni::{
@@ -57,32 +56,40 @@ fn init_context(_event_id: i32) {
 }
 
 #[no_mangle]
-extern "system" fn SetDeviceDataProducer(
-    device_settings_producer: extern fn() -> &'static UniDeviceSettings,
-    tracking_producer: extern fn() -> &'static Tracking,
+extern "system" fn SetDeviceAdapter(
+    get_device_settings: extern fn() -> &'static UniDeviceSettings,
+    get_tracking: extern fn(i64) -> &'static Tracking,
+    on_rendered: extern fn(i64) -> (),
 ) {
     catch_err!({
-        trace_err!(store::set_device_data_producer(Box::new(UniDeviceDataProducer {
-            get_device_csharp_func: device_settings_producer,
-            get_tracking_func: tracking_producer,
+        trace_err!(device::set_device_adapter(Box::new(UniDeviceAdapter {
+            get_device_csharp_func: get_device_settings,
+            get_tracking_func: get_tracking,
+            on_rendered_func: on_rendered,
         })))?;
     });
 }
 
-struct UniDeviceDataProducer<'a> {
+struct UniDeviceAdapter<'a> {
     get_device_csharp_func: extern fn() -> &'a UniDeviceSettings,
-    get_tracking_func: extern fn() -> &'a Tracking,
+    get_tracking_func: extern fn(i64) -> &'a Tracking,
+    on_rendered_func: extern fn(i64) -> ()
 }
 
-impl DeviceDataProducer for UniDeviceDataProducer<'_> {
+impl DeviceAdapter for UniDeviceAdapter<'_> {
     fn get_device(&self) -> StrResult<Device> {
         let device_settings = (self.get_device_csharp_func)();
         Ok(device_settings.into())
     }
 
-    fn get_tracking(&self) -> StrResult<Tracking> {
-        let tracking = (self.get_tracking_func)();
+    fn get_tracking(&self, frame_index: u64) -> StrResult<Tracking> {
+        let tracking = (self.get_tracking_func)(frame_index as i64);
         Ok(*tracking)
+    }
+
+    fn on_rendered(&self, frame_index: u64) -> StrResult<()> {
+        (self.on_rendered_func)(frame_index as i64);
+        Ok(())
     }
 }
 

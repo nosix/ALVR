@@ -10,13 +10,12 @@ mod legacy_packets;
 mod legacy_stream;
 mod logging_backend;
 mod nal;
-mod store;
 mod unity;
 mod util;
 
 use crate::jvm::{
     InputBuffer,
-    JConnectionObserver, JDeviceDataProducer,
+    JConnectionObserver, JDeviceAdapter,
     Preferences,
 };
 use alvr_common::prelude::*;
@@ -58,21 +57,21 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_initPreferences
             certificate_pem: preferences.get_certificate_pem().into(),
             key_pem: preferences.get_key_pem().into()
         };
-        trace_err!(store::set_identity(identity))?;
+        trace_err!(device::set_identity(identity))?;
 
         is_changed
     }, bool).unwrap_or(false).into()
 }
 
 #[no_mangle]
-pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_setDeviceDataProducer(
+pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_setDeviceAdapter(
     env: JNIEnv,
     _: JObject,
     request: JObject,
 ) {
     catch_err!({
-        let wrapper = trace_err!(JDeviceDataProducer::new(&env, request))?;
-        trace_err!(store::set_device_data_producer(Box::new(wrapper)))?;
+        let wrapper = trace_err!(JDeviceAdapter::new(&env, request))?;
+        trace_err!(device::set_device_adapter(Box::new(wrapper)))?;
     });
 }
 
@@ -90,12 +89,12 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_setConnectionOb
 
 #[no_mangle]
 pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onStart(
-    env: JNIEnv,
+    _: JNIEnv,
     _: JObject,
 ) {
     catch_err!({
-        let device = trace_err!(store::get_device())?;
-        let identity = trace_err!(store::get_identity())?;
+        let device = trace_err!(device::get_device())?;
+        let identity = trace_err!(device::get_identity())?;
         trace_err!(connection::connect(device, identity))?;
     });
 }
@@ -135,5 +134,9 @@ pub extern "system" fn Java_io_github_alvr_android_lib_NativeApi_onRendered(
     _: JObject,
     frame_index: i64,
 ) {
-    connection::on_rendered(frame_index as u64);
+    catch_err!({
+        latency_controller::rendered1(frame_index as u64);
+        trace_err!(device::on_rendered(frame_index as u64))?;
+        connection::on_rendered(frame_index as u64);
+    });
 }

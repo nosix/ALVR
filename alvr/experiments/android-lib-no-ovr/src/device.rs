@@ -1,4 +1,14 @@
+use alvr_common::prelude::*;
+use alvr_sockets::PrivateIdentity;
+use once_cell::sync::OnceCell;
+
 pub type Percentage = u8;
+
+pub trait DeviceAdapter: Sync + Send {
+    fn get_device(&self) -> StrResult<Device>;
+    fn get_tracking(&self, frame_index: u64) -> StrResult<Tracking>;
+    fn on_rendered(&self, frame_index: u64) -> StrResult<()>;
+}
 
 pub struct Device {
     pub name: String,
@@ -45,4 +55,46 @@ pub struct Vector3 {
     pub x: f32,
     pub y: f32,
     pub z: f32
+}
+
+static DEVICE: OnceCell<Device> = OnceCell::new();
+static IDENTITY: OnceCell<PrivateIdentity> = OnceCell::new();
+static DEVICE_ADAPTER: OnceCell<Box<dyn DeviceAdapter>> = OnceCell::new();
+
+pub fn set_identity(identity: PrivateIdentity) -> StrResult {
+    IDENTITY.set(identity)
+        .map_err(|_| "The IDENTITY is already set and will not change.".into())
+}
+
+pub fn get_identity() -> StrResult<&'static PrivateIdentity> {
+    IDENTITY.get()
+        .ok_or("The IDENTITY has not been initialized.".into())
+}
+
+pub fn set_device_adapter(adapter: Box<dyn DeviceAdapter>) -> StrResult {
+    DEVICE_ADAPTER.set(adapter)
+        .map_err(|_| "The DEVICE_ADAPTER is already set and will not change.".into())
+}
+
+pub fn get_device() -> StrResult<&'static Device> {
+    Ok(DEVICE.get_or_init(|| {
+        let adapter = DEVICE_ADAPTER.get()
+            .expect("The DEVICE_ADAPTER has not been initialized.");
+        adapter.get_device()
+            .expect("The DEVICE_ADAPTER can't produce a Device instance.")
+    }))
+}
+
+pub fn get_tracking(frame_index: u64) -> StrResult<Tracking> {
+    let adapter = trace_err!(DEVICE_ADAPTER.get()
+        .ok_or("The DEVICE_ADAPTER has not been initialized."))?;
+    let tracking = trace_err!(adapter.get_tracking(frame_index))?;
+    Ok(tracking)
+}
+
+pub fn on_rendered(frame_index: u64) -> StrResult<()> {
+    let adapter = trace_err!(DEVICE_ADAPTER.get()
+        .ok_or("The DEVICE_ADAPTER has not been initialized."))?;
+    trace_err!(adapter.on_rendered(frame_index))?;
+    Ok(())
 }

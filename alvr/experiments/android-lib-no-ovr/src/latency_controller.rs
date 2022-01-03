@@ -43,7 +43,8 @@ enum ActTime {
     ReceivedLast(u64),
     DecoderInput(u64),
     DecoderOutput(u64),
-    Rendered(u64),
+    Rendered1(u64),
+    Rendered2(u64),
 }
 
 fn queue(frame_index: u64, time: ActTime) {
@@ -98,9 +99,14 @@ pub fn decoder_output(frame_index: u64) {
     queue(frame_index, ActTime::DecoderOutput(util::get_timestamp_us()));
 }
 
-/// Record client time when rendering is completed
-pub fn rendered(frame_index: u64) {
-    queue(frame_index, ActTime::Rendered(util::get_timestamp_us()));
+/// Record client time when rendering texture is completed
+pub fn rendered1(frame_index: u64) {
+    queue(frame_index, ActTime::Rendered1(util::get_timestamp_us()));
+}
+
+/// Record client time when rendering screen is completed
+pub fn rendered2(frame_index: u64) {
+    queue(frame_index, ActTime::Rendered2(util::get_timestamp_us()));
 }
 
 pub fn submit(frame_index: u64) -> bool {
@@ -221,13 +227,11 @@ impl FrameTimestampStore {
         debug!("decoder_output {} {}", frame_index, self.get_frame(frame_index).decoder_output);
     }
 
-    /// Record client time when rendering is completed
     fn rendered1(&mut self, frame_index: u64, time: u64) {
         self.get_frame(frame_index).rendered1 = time;
         debug!("rendered1 {} {}", frame_index, self.get_frame(frame_index).rendered1);
     }
 
-    /// Currently the same as rendered1
     fn rendered2(&mut self, frame_index: u64, time: u64) {
         self.get_frame(frame_index).rendered2 = time;
         debug!("rendered2 {} {}", frame_index, self.get_frame(frame_index).rendered2);
@@ -261,8 +265,10 @@ impl FrameTimestampStore {
                 ActTime::DecoderOutput(time) => {
                     self.decoder_output(action.frame_index, time);
                 }
-                ActTime::Rendered(time) => {
+                ActTime::Rendered1(time) => {
                     self.rendered1(action.frame_index, time);
+                }
+                ActTime::Rendered2(time) => {
                     self.rendered2(action.frame_index, time);
                 }
             }
