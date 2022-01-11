@@ -1,3 +1,4 @@
+use crate::device::{Quaternion, Vector3};
 use bincode;
 use bytes::Bytes;
 use serde::{Serialize, Deserialize};
@@ -88,6 +89,56 @@ enum AlvrFingerPinch {
     Ring,
     Pinky,
 }
+
+pub const CONTROLLER_FLAG_ENABLE: u32 = (1 << 0);
+pub const CONTROLLER_FLAG_LEFT_HAND: u32 = (1 << 1);
+pub const CONTROLLER_FLAG_GEAR_VR: u32 = (1 << 2);
+pub const CONTROLLER_FLAG_OCULUS_GO: u32 = (1 << 3);
+pub const CONTROLLER_FLAG_OCULUS_QUEST: u32 = (1 << 4);
+pub const CONTROLLER_FLAG_OCULUS_HAND: u32 = (1 << 5);
+
+pub const INPUT_FLAG_SYSTEM_CLICK: u64 = (1 << 0);
+pub const INPUT_FLAG_APPLICATION_MENU_CLICK: u64 = (1 << 1);
+pub const INPUT_FLAG_GRIP_CLICK: u64 = (1 << 2);
+pub const INPUT_FLAG_GRIP_VALUE: u64 = (1 << 3);
+pub const INPUT_FLAG_GRIP_TOUCH: u64 = (1 << 4);
+pub const INPUT_FLAG_DPAD_LEFT_CLICK: u64 = (1 << 5);
+pub const INPUT_FLAG_DPAD_UP_CLICK: u64 = (1 << 6);
+pub const INPUT_FLAG_DPAD_RIGHT_CLICK: u64 = (1 << 7);
+pub const INPUT_FLAG_DPAD_DOWN_CLICK: u64 = (1 << 8);
+pub const INPUT_FLAG_A_CLICK: u64 = (1 << 9);
+pub const INPUT_FLAG_A_TOUCH: u64 = (1 << 10);
+pub const INPUT_FLAG_B_CLICK: u64 = (1 << 11);
+pub const INPUT_FLAG_B_TOUCH: u64 = (1 << 12);
+pub const INPUT_FLAG_X_CLICK: u64 = (1 << 13);
+pub const INPUT_FLAG_X_TOUCH: u64 = (1 << 14);
+pub const INPUT_FLAG_Y_CLICK: u64 = (1 << 15);
+pub const INPUT_FLAG_Y_TOUCH: u64 = (1 << 16);
+pub const INPUT_FLAG_TRIGGER_LEFT_VALUE: u64 = (1 << 17);
+pub const INPUT_FLAG_TRIGGER_RIGHT_VALUE: u64 = (1 << 18);
+pub const INPUT_FLAG_SHOULDER_LEFT_CLICK: u64 = (1 << 19);
+pub const INPUT_FLAG_SHOULDER_RIGHT_CLICK: u64 = (1 << 20);
+pub const INPUT_FLAG_JOYSTICK_LEFT_CLICK: u64 = (1 << 21);
+pub const INPUT_FLAG_JOYSTICK_LEFT_X: u64 = (1 << 22);
+pub const INPUT_FLAG_JOYSTICK_LEFT_Y: u64 = (1 << 23);
+pub const INPUT_FLAG_JOYSTICK_RIGHT_CLICK: u64 = (1 << 24);
+pub const INPUT_FLAG_JOYSTICK_RIGHT_X: u64 = (1 << 25);
+pub const INPUT_FLAG_JOYSTICK_RIGHT_Y: u64 = (1 << 26);
+pub const INPUT_FLAG_JOYSTICK_CLICK: u64 = (1 << 27);
+pub const INPUT_FLAG_JOYSTICK_X: u64 = (1 << 28);
+pub const INPUT_FLAG_JOYSTICK_Y: u64 = (1 << 29);
+pub const INPUT_FLAG_JOYSTICK_TOUCH: u64 = (1 << 30);
+pub const INPUT_FLAG_BACK_CLICK: u64 = (1 << 31);
+pub const INPUT_FLAG_GUIDE_CLICK: u64 = (1 << 32);
+pub const INPUT_FLAG_START_CLICK: u64 = (1 << 33);
+pub const INPUT_FLAG_TRIGGER_CLICK: u64 = (1 << 34);
+pub const INPUT_FLAG_TRIGGER_VALUE: u64 = (1 << 35);
+pub const INPUT_FLAG_TRIGGER_TOUCH: u64 = (1 << 36);
+pub const INPUT_FLAG_TRACKPAD_X: u64 = (1 << 37);
+pub const INPUT_FLAG_TRACKPAD_Y: u64 = (1 << 38);
+pub const INPUT_FLAG_TRACKPAD_CLICK: u64 = (1 << 39);
+pub const INPUT_FLAG_TRACKPAD_TOUCH: u64 = (1 << 40);
+pub const INPUT_FLAG_THUMB_REST_TOUCH: u64 = (1 << 41);
 
 #[repr(C, packed)]
 #[derive(Debug, Serialize, Deserialize)]
@@ -210,12 +261,33 @@ pub struct TrackingQuad {
     pub w: f32
 }
 
+impl From<Quaternion> for TrackingQuad {
+    fn from(value: Quaternion) -> Self {
+        Self {
+            x: value.x,
+            y: value.y,
+            z: value.z,
+            w: value.w,
+        }
+    }
+}
+
 #[repr(C, packed)]
 #[derive(Debug, Serialize, Deserialize, Default, Copy, Clone)]
 pub struct TrackingVector3 {
     pub x: f32,
     pub y: f32,
     pub z: f32
+}
+
+impl From<Vector3> for TrackingVector3 {
+    fn from(value: Vector3) -> Self {
+        Self {
+            x: value.x,
+            y: value.y,
+            z: value.z,
+        }
+    }
 }
 
 #[repr(C, packed)]

@@ -502,6 +502,10 @@ async fn tracking_loop(
                         y: tracking.head_pose_position.y,
                         z: tracking.head_pose_position.z,
                     },
+                    controller: [
+                        map_controller(&tracking.l_ctrl, CONTROLLER_FLAG_LEFT_HAND),
+                        map_controller(&tracking.r_ctrl, 0),
+                    ],
                     // TODO controller
                     ..Default::default()
                 }
@@ -520,6 +524,34 @@ async fn tracking_loop(
 
         deadline += tracking_interval;
         time::sleep_until(deadline).await;
+    }
+}
+
+fn map_controller(ctrl: &device::Controller, flags: u32) -> Controller {
+    return Controller {
+        flags: flags
+            | CONTROLLER_FLAG_ENABLE
+            | CONTROLLER_FLAG_OCULUS_QUEST,
+        buttons: ctrl.buttons,
+        trackpad_position_x: ctrl.trackpad_position_x,
+        trackpad_position_y: ctrl.trackpad_position_y,
+        trigger_value: ctrl.trigger_value,
+        grip_value: ctrl.grip_value,
+        battery_percent_remaining: 100,
+        recenter_count: 0,
+        orientation: ctrl.orientation.into(),
+        position: ctrl.position.into(),
+        angular_velocity: Default::default(),
+        linear_velocity: Default::default(),
+        angular_acceleration: Default::default(),
+        linear_acceleration: Default::default(),
+        bone_rotations: Default::default(),
+        bone_positions_base: Default::default(),
+        bone_root_orientation: Default::default(),
+        bone_root_position: Default::default(),
+        input_state_status: 0,
+        finger_pinch_strengths: Default::default(),
+        hand_finger_confidence: 0
     }
 }
 
