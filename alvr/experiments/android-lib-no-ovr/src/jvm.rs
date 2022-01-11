@@ -315,6 +315,42 @@ impl DeviceAdapter for JDeviceAdapter {
                 y: head_pose[5],
                 z: head_pose[6],
             },
+            l_ctrl: Controller {
+                buttons: 0,
+                trackpad_position_x: 0.0,
+                trackpad_position_y: 0.0,
+                trigger_value: 0.0,
+                grip_value: 0.0,
+                orientation: Quaternion {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                    w: 0.0
+                },
+                position: Vector3 {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0
+                }
+            },
+            r_ctrl: Controller {
+                buttons: 0,
+                trackpad_position_x: 0.0,
+                trackpad_position_y: 0.0,
+                trigger_value: 0.0,
+                grip_value: 0.0,
+                orientation: Quaternion {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                    w: 0.0
+                },
+                position: Vector3 {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0
+                }
+            },
         })
     }
 

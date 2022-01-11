@@ -29,6 +29,21 @@ pub struct Tracking {
     pub r_eye_fov: Rect,
     pub head_pose_orientation: Quaternion,
     pub head_pose_position: Vector3,
+    pub l_ctrl: Controller,
+    pub r_ctrl: Controller,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct Controller
+{
+    pub buttons: u64,
+    pub trackpad_position_x: f32,
+    pub trackpad_position_y: f32,
+    pub trigger_value: f32,
+    pub grip_value: f32,
+    pub orientation: Quaternion,
+    pub position: Vector3,
 }
 
 #[repr(C)]
