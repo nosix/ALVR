@@ -1,8 +1,10 @@
-use alvr_graphics::TARGET_FORMAT;
+use alvr_common::glam::UVec2;
+use alvr_graphics::{BindingDesc, TARGET_FORMAT};
 use alvr_session::ColorCorrectionDesc;
 use wgpu::{
-    BindGroup, CommandEncoder, Device, Extent3d, RenderPipeline, TextureDescriptor,
-    TextureDimension, TextureUsages, TextureView,
+    BindGroup, BindingResource, BindingType, CommandEncoder, Device, Extent3d, RenderPipeline,
+    TextureDescriptor, TextureDimension, TextureSampleType, TextureUsages, TextureView,
+    TextureViewDimension,
 };
 
 pub struct ColorCorrectionPass {
@@ -12,12 +14,12 @@ pub struct ColorCorrectionPass {
 }
 
 impl ColorCorrectionPass {
-    pub fn new(device: &Device, input_size: (u32, u32)) -> Self {
+    pub fn new(device: &Device, input_size: UVec2) -> Self {
         let texture = device.create_texture(&TextureDescriptor {
             label: None,
             size: Extent3d {
-                width: input_size.0,
-                height: input_size.1,
+                width: input_size.x,
+                height: input_size.y,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -29,12 +31,22 @@ impl ColorCorrectionPass {
 
         let input = texture.create_view(&Default::default());
 
-        let pipeline = alvr_graphics::create_default_render_pipeline(
+        let (pipeline, bind_group) = alvr_graphics::create_default_render_pipeline(
+            "color correction",
             device,
             include_str!("../resources/color_correction.wgsl"),
+            vec![BindingDesc {
+                index: 0,
+                binding_type: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: false },
+                    view_dimension: TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                array_size: None,
+                resource: BindingResource::TextureView(&input),
+            }],
+            0,
         );
-
-        let bind_group = alvr_graphics::create_default_bind_group(device, &pipeline, &input);
 
         Self {
             input,

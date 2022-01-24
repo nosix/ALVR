@@ -8,6 +8,7 @@
 # 5 - ALVR server tarball creation failed
 # 6 - Unable to download Deb control file
 # 7 - Unable to install / upgrade rustup
+# 8 - Unable to create deb
 # 99 - Script run as root
 #
 # Disable warnings about importing snapd
@@ -26,11 +27,17 @@ rawContentProvider='https://raw.githubusercontent.com'
 # Android NDK version
 ndkVersion=30
 
-# Grab the directory git creates
-repoDir="$(dirname "$(realpath "${0}")")/$(basename "${repo}")"
+# Grab the repository directory
+repoDir="$(realpath $(dirname "${0}"))/.."
+if ! [ -d "${repoDir}/.git" ]; then
+    # Get the absolute directory the script is running in, and add the repo name
+    repoDir="$(dirname "$(realpath "${0}")")/$(basename "${repo}")"
+fi
+
 # Set a temporary working directory
 tmpDir="/tmp/alvr_$(date '+%Y%m%d-%H%M%S')"
 buildDir="${repoDir}/build/alvr_server_linux/"
+
 # Import OS info - provides ${ID}
 . /etc/os-release
 
@@ -267,6 +274,9 @@ build_ubuntu_server() {
         'usr/libexec/alvr/'
     )
 
+    # Add debian Package config
+    export PKG_CONFIG_PATH="${PKG_CONFIG_PATH}:${repoDir}/packaging/deb/cuda.pc"
+
     cd "${repoDir}" > /dev/null || return 4
     # There's no vulkan-enabled ffmpeg afaik
     log info 'Building ALVR server ...'
@@ -309,9 +319,12 @@ build_ubuntu_server() {
     done
 
     log info 'Generating package ...'
-    dpkg-deb --build --root-owner-group "${debTmpDir}"
-    # dpkg-deb puts the resulting file in the top level directory
-    cp "${tmpDir}/alvr_${debVer}.deb" "${HOME}"
+    if dpkg-deb --build --root-owner-group "${debTmpDir}"; then
+        # dpkg-deb puts the resulting file in the top level directory
+        cp "${tmpDir}/alvr_${debVer}.deb" "${HOME}"
+    else
+        log critical 'Unable to create package!' 8
+    fi
 }
 
 # Debian

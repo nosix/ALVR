@@ -1,6 +1,6 @@
 [package]
 name = "alvr_sockets"
-version = "16.0.0"
+version = "17.0.0-dev.2"
 authors = ["alvr-org", "Riccardo Zaglia <riccardo.zaglia5@gmail.com>"]
 license = "MIT"
 edition = "2021"
@@ -21,7 +21,5 @@ nonzero_ext = "0.3"
 tokio = { version = "1", features = ["rt", "net", "macros"] }
 tokio-util = { version = "0.6", features = ["codec", "net"] }
 # Miscellaneous
-nalgebra = { version = "0.29", features = ["serde-serialize"] }
 rand = "0.8"
 rcgen = "0.8"
-semver = { version = "1", features = ['serde'] }

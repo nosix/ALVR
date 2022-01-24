@@ -1,6 +1,6 @@
-use crate::{graphics_info, ClientListAction, MAYBE_NEW_DASHBOARD, MAYBE_WINDOW, SESSION_MANAGER};
-use alvr_common::prelude::*;
-use alvr_gui::Dashboard;
+use crate::{graphics_info, ClientListAction, MAYBE_WINDOW, SESSION_MANAGER};
+use alvr_common::{lazy_static, prelude::*};
+// use alvr_gui::Dashboard;
 use alvr_session::SessionDesc;
 use parking_lot::Mutex;
 use std::{
@@ -58,7 +58,7 @@ pub fn ui_thread() -> StrResult {
     Ok(())
 }
 
-lazy_static::lazy_static! {
+lazy_static! {
     static ref TEMP_SESSION: Arc<Mutex<SessionDesc>> = Arc::new(Mutex::new(SessionDesc::default()));
     static ref TEMP_SESSION_MODIFIED: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 }
@@ -69,9 +69,9 @@ pub async fn event_listener(events_sender: Sender<String>) {
     loop {
         match receiver.recv().await {
             Ok(event) => {
-                if let Some(dashboard) = &*MAYBE_NEW_DASHBOARD.lock() {
-                    dashboard.report_event(serde_json::from_str(&event).unwrap());
-                }
+                // if let Some(dashboard) = &*MAYBE_NEW_DASHBOARD.lock() {
+                //     dashboard.report_event(serde_json::from_str(&event).unwrap());
+                // }
             }
             Err(RecvError::Lagged(_)) => {
                 // warn!("Some log lines have been lost because the buffer is full");

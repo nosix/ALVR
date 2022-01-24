@@ -6,7 +6,7 @@ mod version;
 use alvr_filesystem::{self as afs, Layout};
 use fs_extra::{self as fsx, dir as dirx};
 use pico_args::Arguments;
-use std::{env, fs, path::Path, time::Instant};
+use std::{env, fs, time::Instant};
 
 const HELP_STR: &str = r#"
 cargo xtask
@@ -20,7 +20,7 @@ SUBCOMMANDS:
     build-android-deps  Download and compile external dependencies for Android
     build-server        Build server driver, then copy binaries to build folder
     build-client        Build client, then copy binaries to build folder
-    build-ffmpeg-linux  Build FFmpeg with VAAPI and Vulkan support. Only for CI
+    build-ffmpeg-linux  Build FFmpeg with VAAPI, NvEnc and Vulkan support. Only for CI
     publish-server      Build server in release mode, make portable version and installer
     publish-client      Build client for all headsets
     clean               Removes build folder
@@ -38,6 +38,7 @@ FLAGS:
     --oculus-quest      Oculus Quest build. Used only for build-client subcommand
     --oculus-go         Oculus Go build. Used only for build-client subcommand
     --bundle-ffmpeg     Bundle ffmpeg libraries. Only used for build-server subcommand on Linux
+    --no-nvidia         Additional flag to use with `build-server`. Disables nVidia support.
     --help              Print this text
 
 ARGS:
@@ -56,6 +57,7 @@ pub fn build_server(
     experiments: bool,
     fetch_crates: bool,
     bundle_ffmpeg: bool,
+    no_nvidia: bool,
     root: Option<String>,
     reproducible: bool,
 ) {
@@ -110,14 +112,15 @@ pub fn build_server(
     let mut copy_options = dirx::CopyOptions::new();
     copy_options.copy_inside = true;
     fsx::copy_items(
-        &["alvr/xtask/resources/presets"],
+        &[afs::workspace_dir().join("alvr/xtask/resources/presets")],
         layout.presets_dir(),
         &copy_options,
     )
-    .expect("copy presets");
+    .unwrap();
 
     if bundle_ffmpeg {
-        let ffmpeg_path = dependencies::build_ffmpeg_linux();
+        let nvenc_flag = !no_nvidia;
+        let ffmpeg_path = dependencies::build_ffmpeg_linux(nvenc_flag);
         let lib_dir = afs::server_build_dir().join("lib64").join("alvr");
         fs::create_dir_all(lib_dir.clone()).unwrap();
         for lib in walkdir::WalkDir::new(ffmpeg_path)
@@ -191,10 +194,10 @@ pub fn build_server(
     }
 
     fs::copy(
-        Path::new("alvr/xtask/resources/driver.vrdrivermanifest"),
+        afs::workspace_dir().join("alvr/xtask/resources/driver.vrdrivermanifest"),
         layout.openvr_driver_manifest(),
     )
-    .expect("copy openVR driver manifest");
+    .unwrap();
 
     if cfg!(windows) {
         let dir_content = dirx::get_dir_content("alvr/server/cpp/bin/windows").unwrap();
@@ -206,18 +209,20 @@ pub fn build_server(
         .unwrap();
     }
 
-    let dir_content =
-        dirx::get_dir_content2("alvr/resources", &dirx::DirOptions { depth: 1 }).unwrap();
-    let items: Vec<&String> = dir_content.directories[1..]
-        .iter()
-        .chain(dir_content.files.iter())
-        .collect();
+    // let dir_content =
+    //     dirx::get_dir_content2("alvr/resources", &dirx::DirOptions { depth: 1 }).unwrap();
+    // let items: Vec<&String> = dir_content.directories[1..]
+    //     .iter()
+    //     .chain(dir_content.files.iter())
+    //     .collect();
+    // fs::create_dir_all(&layout.resources_dir()).unwrap();
+    // fsx::copy_items(&items, layout.resources_dir(), &dirx::CopyOptions::new()).unwrap();
 
-    fs::create_dir_all(&layout.resources_dir()).unwrap();
-    fsx::copy_items(&items, layout.resources_dir(), &dirx::CopyOptions::new()).unwrap();
-
-    let dir_content =
-        dirx::get_dir_content2("alvr/dashboard", &dirx::DirOptions { depth: 1 }).unwrap();
+    let dir_content = dirx::get_dir_content2(
+        afs::workspace_dir().join("alvr/dashboard"),
+        &dirx::DirOptions { depth: 1 },
+    )
+    .unwrap();
     let items: Vec<&String> = dir_content.directories[1..]
         .iter()
         .chain(dir_content.files.iter())
@@ -355,6 +360,7 @@ fn main() {
         let for_oculus_quest = args.contains("--oculus-quest");
         let for_oculus_go = args.contains("--oculus-go");
         let bundle_ffmpeg = args.contains("--bundle-ffmpeg");
+        let no_nvidia = args.contains("--no-nvidia");
         let reproducible = args.contains("--reproducible");
         let root: Option<String> = args.opt_value_from_str("--root").unwrap();
 
@@ -367,6 +373,7 @@ fn main() {
                     experiments,
                     fetch,
                     bundle_ffmpeg,
+                    no_nvidia,
                     root,
                     reproducible,
                 ),
@@ -380,7 +387,10 @@ fn main() {
                     }
                 }
                 "build-ffmpeg-linux" => {
-                    dependencies::build_ffmpeg_linux();
+                    dependencies::build_ffmpeg_linux(true);
+                }
+                "build-ffmpeg-linux-no-nvidia" => {
+                    dependencies::build_ffmpeg_linux(false);
                 }
                 "publish-server" => packaging::publish_server(is_nightly, root, reproducible),
                 "publish-client" => packaging::publish_client(is_nightly),
@@ -406,5 +416,11 @@ fn main() {
         return;
     }
 
-    println!("\nDone (in {:?})\n", Instant::now() - begin_time);
+    let elapsed_time = Instant::now() - begin_time;
+
+    println!(
+        "\nDone [{}m {}s]\n",
+        elapsed_time.as_secs() / 60,
+        elapsed_time.as_secs() % 60
+    );
 }
