@@ -8,7 +8,7 @@ plugins {
 
 ext {
     groupId = 'io.github.alvr'
-    versionName = '0.1'
+    versionName = '17.0.0'
 }
 
 group = groupId
