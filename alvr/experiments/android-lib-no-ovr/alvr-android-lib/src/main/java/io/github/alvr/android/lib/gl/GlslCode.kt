@@ -63,8 +63,12 @@ void main() {
 
     vec2 alignedUV = eyeUV;
 
-    vec2 loBound = (1. - CENTER_SIZE) / 2. * (CENTER_SHIFT + 1.);
-    vec2 hiBound = (1. - CENTER_SIZE) / 2. * (CENTER_SHIFT - 1.) + 1.;
+    vec2 c0 = (1.-CENTER_SIZE) / 2.;
+    vec2 c1 = (EDGE_RATIO-1.) * c0 * (CENTER_SHIFT + 1.) / EDGE_RATIO;
+    vec2 c2 = (EDGE_RATIO-1.) * CENTER_SIZE + 1.;
+
+    vec2 loBound = c0 * (CENTER_SHIFT + 1.);
+    vec2 hiBound = c0 * (CENTER_SHIFT - 1.) + 1.;
     vec2 underBound = vec2(
         alignedUV.x < loBound.x,
         alignedUV.y < loBound.y
@@ -78,11 +82,13 @@ void main() {
         alignedUV.y > hiBound.y
     );
 
-    vec2 center = EDGE_RATIO 
-        * (alignedUV + (1. - CENTER_SIZE) * (1. - EDGE_RATIO) * (CENTER_SHIFT + 1.) / (2. * EDGE_RATIO))
-        / ((EDGE_RATIO - 1.) * CENTER_SIZE + 1.);
-    vec2 leftEdge = alignedUV / (1. + (EDGE_RATIO - 1.) * CENTER_SIZE);
-    vec2 rightEdge = 1. + (alignedUV - 1.) / (1. + (EDGE_RATIO - 1.) * CENTER_SIZE);
+    vec2 d1 = (alignedUV - c1) * EDGE_RATIO / c2;
+
+    vec2 center = d1;
+    vec2 loBoundC = c0 * (CENTER_SHIFT + 1.) / c2;
+    vec2 hiBoundC = c0 * (CENTER_SHIFT - 1.) / c2 + 1.;
+    vec2 leftEdge = (-(c1+c2*loBoundC)/loBoundC+sqrt(((c1+c2*loBoundC)/loBoundC)*((c1+c2*loBoundC)/loBoundC)+4.*c2*(1.-EDGE_RATIO)/(EDGE_RATIO*loBoundC)*alignedUV))/(2.*c2*(1.-EDGE_RATIO))*(EDGE_RATIO*loBoundC);
+    vec2 rightEdge = (-(c2-EDGE_RATIO*c1-2.*EDGE_RATIO*c2+c2*EDGE_RATIO*(1.-hiBoundC)+EDGE_RATIO)/(EDGE_RATIO*(1.-hiBoundC))+sqrt(((c2-EDGE_RATIO*c1-2.*EDGE_RATIO*c2+c2*EDGE_RATIO*(1.-hiBoundC)+EDGE_RATIO)/(EDGE_RATIO*(1.-hiBoundC)))*((c2-EDGE_RATIO*c1-2.*EDGE_RATIO*c2+c2*EDGE_RATIO*(1.-hiBoundC)+EDGE_RATIO)/(EDGE_RATIO*(1.-hiBoundC)))-4.*((c2*EDGE_RATIO-c2)*(c1-hiBoundC+hiBoundC*c2)/(EDGE_RATIO*(1.-hiBoundC)*(1.-hiBoundC))-alignedUV*(c2*EDGE_RATIO-c2)/(EDGE_RATIO*(1.-hiBoundC)))))/(2.*c2*(EDGE_RATIO-1.))*(EDGE_RATIO*(1.-hiBoundC));
 
     vec2 uncompressedUV = 
         underBound * leftEdge + 

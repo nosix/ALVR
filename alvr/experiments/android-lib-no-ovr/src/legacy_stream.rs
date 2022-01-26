@@ -10,22 +10,25 @@ use crate::{
 use alvr_common::prelude::*;
 use bytes::{Bytes, Buf};
 use std::mem;
+use tokio::sync::mpsc::UnboundedSender;
 
-pub struct StreamHandler<P, S> where P: Fn(Nal), S: Fn(Vec<u8>) {
+pub struct StreamHandler<P> where P: Fn(Nal) {
     server_time_diff: i64,
     last_frame_index: u64,
     prev_video_sequence: u32,
     nal_parser: NalParser<P>,
-    legacy_send: S,
+    time_sync_sender: UnboundedSender<TimeSync>,
+    video_error_report_sender: UnboundedSender<()>,
 }
 
-impl<P, S> StreamHandler<P, S> where P: Fn(Nal), S: Fn(Vec<u8>) {
+impl<P> StreamHandler<P> where P: Fn(Nal) {
     pub fn new(
         enable_fec: bool,
         codec: AlvrCodec,
         push_nal: P,
-        legacy_send: S,
-    ) -> StreamHandler<P, S> {
+        time_sync_sender: UnboundedSender<TimeSync>,
+        video_error_report_sender: UnboundedSender<()>,
+    ) -> StreamHandler<P> {
         latency_controller::reset();
         let nal_parser = NalParser::new(
             enable_fec,
@@ -37,7 +40,8 @@ impl<P, S> StreamHandler<P, S> where P: Fn(Nal), S: Fn(Vec<u8>) {
             last_frame_index: 0,
             prev_video_sequence: 0,
             nal_parser,
-            legacy_send,
+            time_sync_sender,
+            video_error_report_sender,
         }
     }
 
@@ -51,7 +55,7 @@ impl<P, S> StreamHandler<P, S> where P: Fn(Nal), S: Fn(Vec<u8>) {
             }
             AlvrPacketType::HapticsFeedback =>
                 self.process_haptics_feedback(buffer.into()),
-            _ => {}
+            _ => error!("unknown packet type")
         }
     }
 
@@ -114,7 +118,7 @@ impl<P, S> StreamHandler<P, S> where P: Fn(Nal), S: Fn(Vec<u8>) {
     }
 
     fn process_time_sync(&mut self, time_sync: TimeSync) {
-        debug!("{:?}", time_sync);
+        debug!("receive {:?}", time_sync);
 
         let current = util::get_timestamp_us();
         match time_sync.mode {
@@ -133,7 +137,7 @@ impl<P, S> StreamHandler<P, S> where P: Fn(Nal), S: Fn(Vec<u8>) {
     }
 
     fn process_haptics_feedback(&mut self, haptics_feedback: HapticsFeedback) {
-        debug!("{:?}", haptics_feedback);
+        debug!("receive {:?}", haptics_feedback);
 
         // self.activity.on_haptics_feedback(
         //     &self.vm,
@@ -151,13 +155,14 @@ impl<P, S> StreamHandler<P, S> where P: Fn(Nal), S: Fn(Vec<u8>) {
         from_packet_counter: u32,
         to_packet_counter: u32,
     ) {
-        let packet_error_report = PacketErrorReport {
-            lost_frame_type: frame_type.into(),
-            from_packet_counter,
-            to_packet_counter,
-            ..Default::default()
-        };
-        (self.legacy_send)(packet_error_report.into());
+        // let packet_error_report = PacketErrorReport {
+        //     lost_frame_type: frame_type.into(),
+        //     from_packet_counter,
+        //     to_packet_counter,
+        //     ..Default::default()
+        // };
+        debug!("send PacketErrorReport");
+        self.video_error_report_sender.send(()).ok();
     }
 
     fn send_time_sync(
@@ -167,8 +172,8 @@ impl<P, S> StreamHandler<P, S> where P: Fn(Nal), S: Fn(Vec<u8>) {
     ) {
         time_sync.mode = 2;
         time_sync.client_time = client_time;
-        debug!("TimeSync {:?}", time_sync);
-        (self.legacy_send)(time_sync.into());
+        debug!("send {:?}", time_sync);
+        self.time_sync_sender.send(time_sync).ok();
     }
 
     fn set_server_time_diff(&mut self, sent_server_time: u64, received_client_time: u64, rtt: u64) {

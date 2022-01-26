@@ -57,18 +57,16 @@ impl<F> NalParser<F> where F: Fn(Nal) {
     ) -> Result<(), ProcessError> {
         let tracking_frame_index = frame_header.tracking_frame_index;
 
-        if self.enable_fec {
+        let mut frame_buffer = if self.enable_fec {
             if let Err(e) = self.queue.add_video_packet(frame_header, &frame_buffer) {
                 error!("add_video_packet return error '{}'", e);
                 *fec_failure = true;
             }
-        }
 
-        if let Err(e) = self.queue.reconstruct() {
-            return Err(ProcessError::ReconstructFailed(e));
-        }
+            if let Err(e) = self.queue.reconstruct() {
+                return Err(ProcessError::ReconstructFailed(e));
+            }
 
-        let mut frame_buffer = if self.enable_fec {
             self.queue.get_frame_buffer()
         } else {
             frame_buffer

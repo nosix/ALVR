@@ -1,7 +1,7 @@
 use alvr_audio;
 use alvr_common::*;
 use alvr_session::AudioConfig;
-use alvr_sockets::{StreamReceiver, StreamSender, AUDIO};
+use alvr_sockets::{StreamReceiver, StreamSender};
 use parking_lot::Mutex;
 use std::{
     collections::VecDeque,
@@ -17,7 +17,7 @@ use tokio::sync::mpsc as tmpsc;
 use oboe::*;
 
 pub async fn play_audio_loop_nop(
-    mut game_audio_receiver: StreamReceiver<(), AUDIO>,
+    mut game_audio_receiver: StreamReceiver<()>,
 ) -> StrResult {
     loop {
         game_audio_receiver.recv().await?;
@@ -25,7 +25,7 @@ pub async fn play_audio_loop_nop(
 }
 
 pub async fn play_audio_loop(
-    game_audio_receiver: StreamReceiver<(), AUDIO>,
+    game_audio_receiver: StreamReceiver<()>,
     audio_config: AudioConfig,
     sample_rate: u32,
 ) -> StrResult {
@@ -45,13 +45,13 @@ pub async fn play_audio_loop(
 }
 
 pub async fn record_audio_loop_nop(
-    microphone_sender: StreamSender<(), AUDIO>,
+    microphone_sender: StreamSender<()>,
 ) -> StrResult {
     future::pending().await
 }
 
 pub async fn record_audio_loop(
-    microphone_sender: StreamSender<(), AUDIO>,
+    microphone_sender: StreamSender<()>,
     sample_rate: u32,
 ) -> StrResult {
     #[cfg(target_os = "android")]
@@ -99,7 +99,7 @@ impl AudioOutputCallback for PlayerCallback {
 
 #[cfg(target_os = "android")]
 async fn play_audio_loop_android(
-    game_audio_receiver: StreamReceiver<(), AUDIO>,
+    game_audio_receiver: StreamReceiver<()>,
     audio_config: AudioConfig,
     sample_rate: u32,
 ) -> StrResult {
@@ -178,7 +178,7 @@ impl AudioInputCallback for RecorderCallback {
 
 #[cfg(target_os = "android")]
 async fn record_audio_loop_android(
-    mut microphone_sender: StreamSender<(), AUDIO>,
+    mut microphone_sender: StreamSender<()>,
     sample_rate: u32,
 ) -> StrResult {
     let (_shutdown_notifier, shutdown_receiver) = smpsc::channel::<()>();

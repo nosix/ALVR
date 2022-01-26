@@ -9,10 +9,15 @@ use crate::{
     legacy_packets::*,
     legacy_stream::StreamHandler,
     latency_controller,
+    packet,
     util,
 };
 use alvr_common::{
+    glam::{Quat, Vec2, Vec3},
     prelude::*,
+    Haptics,
+    MotionData,
+    TrackedDeviceType,
     ALVR_NAME, ALVR_VERSION,
 };
 use alvr_session::*;
@@ -24,6 +29,7 @@ use parking_lot::Mutex;
 use serde_json as json;
 use settings_schema::Switch;
 use std::{
+    mem,
     net::{IpAddr, Ipv4Addr},
     time::Duration,
 };
@@ -209,7 +215,7 @@ async fn connection_pipeline(
         });
     }
 
-    let mut stream_socket = tokio::select! {
+    let stream_socket = tokio::select! {
         res = stream_socket_builder.accept_from_server(server_ip, stream_port) => res?,
         _ = time::sleep(SET_UP_STREAM_TIMEOUT) => {
             return Err(ConnectionError::TimeoutSetUpStream);
@@ -230,76 +236,116 @@ async fn connection_pipeline(
         Switch::Disabled => false,
     };
 
-    // legacy_send_data_sender is used by the sync context.
-    let (legacy_send_data_sender, legacy_send_data_receiver) = tmpsc::unbounded_channel();
+    let (legacy_receive_data_sender, legacy_receive_data_receiver) = tmpsc::unbounded_channel();
 
-    let legacy_send_loop = legacy_send_loop(
-        legacy_send_data_receiver,
-        stream_socket.request_stream::<_, LEGACY>().await?,
-    );
+    // senders are used by the sync context.
+    let (time_sync_sender, time_sync_receiver) = tmpsc::unbounded_channel();
+    let (video_error_report_sender, video_error_report_receiver) = tmpsc::unbounded_channel();
 
     let legacy_receive_loop = legacy_receive_loop(
-        legacy_send_data_sender.clone(),
-        stream_socket.subscribe_to_stream::<(), LEGACY>().await?,
+        legacy_receive_data_receiver,
+        time_sync_sender.clone(),
+        video_error_report_sender.clone(),
         settings.video.codec,
         settings.connection.enable_fec,
     );
 
+    let video_receive_loop = video_receive_loop(
+        stream_socket.subscribe_to_stream::<VideoFrameHeaderPacket>(VIDEO).await?,
+        legacy_receive_data_sender.clone(),
+    );
+
+    let haptics_receive_loop = haptics_receive_loop(
+        stream_socket.subscribe_to_stream::<Haptics<TrackedDeviceType>>(HAPTICS).await?,
+        legacy_receive_data_sender.clone(),
+    );
+
     let (control_send_data_sender, control_send_data_receiver) = tmpsc::channel(CHANNEL_BUFFER_SIZE);
+
+    let (rendered_sender, rendered_receiver) = tmpsc::unbounded_channel();
+    *MAYBE_RENDERED_SENDER.lock() = Some(rendered_sender);
+
+    let tracking_loop = tracking_loop(
+        stream_socket.request_stream(INPUT).await?
+    );
+    let time_sync_send_loop = time_sync_send_loop(
+        rendered_receiver,
+        control_send_data_sender.clone(),
+    );
+    let time_sync_send_back_loop = time_sync_send_back_loop(
+        time_sync_receiver,
+        control_send_data_sender.clone(),
+    );
+    let video_error_report_send_loop = video_error_report_send_loop(
+        video_error_report_receiver,
+        control_send_data_sender.clone(),
+    );
+    let playspace_sync_loop = playspace_sync_loop(
+        control_send_data_sender.clone()
+    );
+    let request_idr_loop = request_idr_loop(
+        control_send_data_sender.clone()
+    );
+
+    let keepalive_sender_loop = keepalive_sender_loop(
+        control_send_data_sender.clone()
+    );
 
     let control_send_loop = control_send_loop(
         control_send_data_receiver,
         control_sender,
     );
 
-    let (rendered_sender, rendered_receiver) = tmpsc::unbounded_channel();
-    *MAYBE_RENDERED_SENDER.lock() = Some(rendered_sender);
-
-    let time_sync_loop = time_sync_loop(rendered_receiver, legacy_send_data_sender.clone());
-    let tracking_loop = tracking_loop(legacy_send_data_sender.clone());
-    let playspace_sync_loop = playspace_sync_loop(control_send_data_sender.clone());
-    let keepalive_sender_loop = keepalive_sender_loop(control_send_data_sender.clone());
-
-    let control_loop = control_loop(
+    let control_receive_loop = control_receive_loop(
         control_receiver,
-        control_send_data_sender.clone(),
+        legacy_receive_data_sender.clone(),
     );
 
     let game_audio_loop = game_audio_loop(
-        stream_socket.subscribe_to_stream().await?,
+        stream_socket.subscribe_to_stream(AUDIO).await?,
         settings.audio.game_audio,
         config_packet.game_audio_sample_rate,
     );
     let microphone_loop = microphone_loop(
-        stream_socket.request_stream().await?,
+        stream_socket.request_stream(AUDIO).await?,
         settings.audio.microphone,
     );
 
+    let receive_loop = async move {
+        stream_socket.receive_loop().await
+    };
+
     // Run many tasks concurrently. Threading is managed by the runtime, for best performance.
     (tokio::select! {
-        res = spawn_cancelable(stream_socket.receive_loop()) => {
+        res = spawn_cancelable(receive_loop) => {
             if let Err(e) = res {
                 return Err(ConnectionError::ServerDisconnected {
                     cause: format!("{}\n{}", e, trace_str!())
                 });
             }
+            info!("receive_loop finished");
             Ok(())
         },
         res = spawn_cancelable(game_audio_loop) => trace_err!(res),
         res = spawn_cancelable(microphone_loop) => trace_err!(res),
-        res = spawn_cancelable(time_sync_loop) => trace_err!(res),
-        res = spawn_cancelable(tracking_loop) => trace_err!(res),
-        res = spawn_cancelable(playspace_sync_loop) => trace_err!(res),
-        res = spawn_cancelable(legacy_send_loop) => trace_err!(res),
         res = spawn_cancelable(legacy_receive_loop) => trace_err!(res),
+        res = spawn_cancelable(video_receive_loop) => trace_err!(res),
+        res = spawn_cancelable(haptics_receive_loop) => trace_err!(res),
+        res = spawn_cancelable(tracking_loop) => trace_err!(res),
+        res = spawn_cancelable(time_sync_send_loop) => trace_err!(res),
+        res = spawn_cancelable(time_sync_send_back_loop) => trace_err!(res),
+        res = spawn_cancelable(video_error_report_send_loop) => trace_err!(res),
+        res = spawn_cancelable(playspace_sync_loop) => trace_err!(res),
+        res = spawn_cancelable(request_idr_loop) => trace_err!(res),
         res = buffer_queue::buffer_coordination_loop() => trace_err!(res)?,
 
         // keep these loops on the current task
         res = keepalive_sender_loop => trace_err!(res),
         res = control_send_loop => trace_err!(res),
-        res = control_loop => trace_err!(res),
+        res = control_receive_loop => trace_err!(res),
     })?;
 
+    info!("loop finished");
     Ok(())
 }
 
@@ -385,34 +431,24 @@ async fn receive_response_loop(
     }
 }
 
-async fn legacy_send_loop(
-    mut legacy_send_data_receiver: tmpsc::UnboundedReceiver<Vec<u8>>,
-    mut socket_sender: StreamSender<(), LEGACY>,
-) -> StrResult {
-    while let Some(data) = legacy_send_data_receiver.recv().await {
-        let mut buffer = socket_sender.new_buffer(&(), data.len())?;
-        buffer.get_mut().extend(data);
-        socket_sender.send_buffer(buffer).await.ok();
-    }
-    Ok(())
-}
-
 async fn legacy_receive_loop(
-    legacy_send_data_sender: tmpsc::UnboundedSender<Vec<u8>>,
-    mut socket_receiver: StreamReceiver<(), LEGACY>,
+    mut legacy_receive_data_receiver: tmpsc::UnboundedReceiver<Vec<u8>>,
+    time_sync_sender: tmpsc::UnboundedSender<TimeSync>,
+    video_error_report_sender: tmpsc::UnboundedSender<()>,
     codec: CodecType,
     enable_fec: bool,
 ) -> StrResult {
-    let legacy_send = |data: Vec<u8>|
-        legacy_send_data_sender.send(data)
-            .unwrap_or_else(|e| error!("{}", e));
     let push_nal = buffer_queue::push_nal;
-    let mut handler = StreamHandler::new(enable_fec, codec.into(), push_nal, legacy_send);
+    let mut handler = StreamHandler::new(
+        enable_fec,
+        codec.into(),
+        push_nal,
+        time_sync_sender,
+        video_error_report_sender,
+    );
     let mut idr_request_deadline = None;
 
-    loop {
-        let data = socket_receiver.recv().await?.buffer;
-
+    while let Some(data) = legacy_receive_data_receiver.recv().await {
         // Send again IDR packet every 2s in case it is missed
         // (due to dropped burst of packets at the start of the stream or otherwise).
         if !buffer_queue::is_idr_parsed() {
@@ -425,13 +461,63 @@ async fn legacy_receive_loop(
                 idr_request_deadline = Some(Instant::now() + Duration::from_secs(2));
             }
         }
-
-        // crate::IS_CONNECTED.store(true, Ordering::Relaxed);
-
-        handler.legacy_receive(data.freeze());
+        handler.legacy_receive(data.into());
     }
+    info!("legacy_receive_loop finished");
+    Ok(())
+}
 
-    // crate::IS_CONNECTED.store(false, Ordering::Relaxed);
+async fn video_receive_loop(
+    mut stream_receiver: StreamReceiver<VideoFrameHeaderPacket>,
+    legacy_receive_data_sender: tmpsc::UnboundedSender<Vec<u8>>,
+) -> StrResult {
+    const HEADER_LEN: usize = mem::size_of::<VideoFrameHeader>();
+    loop {
+        let packet = stream_receiver.recv().await?;
+        let mut buffer = vec![0_u8; HEADER_LEN + packet.buffer.len()];
+        let header = VideoFrameHeader {
+            packet_type: 9, // ALVR_PACKET_TYPE_VIDEO_FRAME
+            packet_counter: packet.header.packet_counter,
+            tracking_frame_index: packet.header.tracking_frame_index,
+            video_frame_index: packet.header.video_frame_index,
+            sent_time: packet.header.sent_time,
+            frame_byte_size: packet.header.frame_byte_size,
+            fec_index: packet.header.fec_index,
+            fec_percentage: packet.header.fec_percentage,
+        };
+        buffer[..HEADER_LEN].copy_from_slice(unsafe {
+            &mem::transmute::<_, [u8; HEADER_LEN]>(header)
+        });
+        buffer[HEADER_LEN..].copy_from_slice(&packet.buffer);
+        trace_err!(legacy_receive_data_sender.send(buffer))?;
+    }
+}
+
+async fn haptics_receive_loop(
+    mut stream_receiver: StreamReceiver<Haptics<TrackedDeviceType>>,
+    legacy_receive_data_sender: tmpsc::UnboundedSender<Vec<u8>>,
+) -> StrResult {
+    const HAPTICS_FEEDBACK_LEN: usize = mem::size_of::<HapticsFeedback>();
+    loop {
+        let packet = stream_receiver.recv().await?;
+        let haptics = HapticsFeedback {
+            packet_type: 13, // ALVR_PACKET_TYPE_HAPTICS
+            start_time: 0,
+            amplitude: packet.header.amplitude,
+            duration: packet.header.duration.as_secs_f32(),
+            frequency: packet.header.frequency,
+            hand: if matches!(packet.header.device, TrackedDeviceType::LeftHand) {
+                0
+            } else {
+                1
+            },
+        };
+        let mut buffer = vec![0_u8; HAPTICS_FEEDBACK_LEN];
+        buffer.copy_from_slice(unsafe {
+            &mem::transmute::<_, [u8; HAPTICS_FEEDBACK_LEN]>(haptics)
+        });
+        trace_err!(legacy_receive_data_sender.send(buffer))?;
+    }
 }
 
 async fn control_send_loop(
@@ -441,12 +527,13 @@ async fn control_send_loop(
     while let Some(packet) = control_send_data_receiver.recv().await {
         trace_err!(control_sender.send(&packet).await)?;
     }
+    info!("control_send_loop finished");
     Ok(())
 }
 
-async fn time_sync_loop(
+async fn time_sync_send_loop(
     mut rendered_receiver: tmpsc::UnboundedReceiver<u64>,
-    legacy_send_data_sender: tmpsc::UnboundedSender<Vec<u8>>,
+    control_sender: tmpsc::Sender<ClientControlPacket>,
 ) -> StrResult {
     while let Some(frame_index) = rendered_receiver.recv().await {
         latency_controller::rendered2(frame_index);
@@ -454,104 +541,183 @@ async fn time_sync_loop(
             // TimeSync here might be an issue but it seems to work fine
             let time_sync = latency_controller::new_time_sync();
             debug!("TimeSync {:?}", time_sync);
-            trace_err!(legacy_send_data_sender.send(time_sync.into()))?;
+            trace_err!(control_sender
+                .send(ClientControlPacket::TimeSync(time_sync.into()))
+                .await
+            )?;
         }
     }
+    info!("time_sync_send_loop finished");
+    Ok(())
+}
+
+async fn time_sync_send_back_loop(
+    mut time_sync_receiver: tmpsc::UnboundedReceiver<TimeSync>,
+    control_sender: tmpsc::Sender<ClientControlPacket>,
+) -> StrResult {
+    while let Some(time_sync) = time_sync_receiver.recv().await {
+        trace_err!(control_sender
+            .send(ClientControlPacket::TimeSync(time_sync.into()))
+            .await
+        )?;
+    }
+    info!("time_sync_send_back_loop finished");
+    Ok(())
+}
+
+async fn video_error_report_send_loop(
+    mut video_error_report_trigger_receiver: tmpsc::UnboundedReceiver<()>,
+    control_sender: tmpsc::Sender<ClientControlPacket>,
+) -> StrResult {
+    while let Some(()) = video_error_report_trigger_receiver.recv().await {
+        trace_err!(control_sender
+            .send(ClientControlPacket::VideoErrorReport)
+            .await
+        )?;
+    }
+    info!("video_error_report_send_loop finished");
     Ok(())
 }
 
 async fn tracking_loop(
-    legacy_send_data_sender: tmpsc::UnboundedSender<Vec<u8>>
+    mut socket_sender: StreamSender<Input>,
 ) -> StrResult {
     let tracking_interval = Duration::from_secs_f32(TRACKING_INTERVAL);
     let mut deadline = Instant::now();
     let mut frame_index = 0;
     loop {
         frame_index += 1;
-        let tracking_info = match device::get_tracking(frame_index) {
+        let input = match device::get_tracking(frame_index) {
             Ok(tracking) => {
-                TrackingInfo {
-                    client_time: util::get_timestamp_us(),
-                    frame_index,
-                    // TODO predicated_display_time
-                    ipd: tracking.ipd,
-                    eye_fov: [
-                        EyeFov {
-                            left: tracking.l_eye_fov.left,
-                            right: tracking.l_eye_fov.right,
-                            top: tracking.l_eye_fov.top,
-                            bottom: tracking.l_eye_fov.bottom,
+                let head_orientation = tracking.head_pose_orientation.into();
+                let head_position: Vec3 = tracking.head_pose_position.into();
+                let head_to_eye_position = head_orientation * Vec3::X * tracking.ipd / 2f32;
+                Input {
+                    target_timestamp: Default::default(), // TODO predicated_display_time
+                    view_configs: vec![
+                        ViewConfig {
+                            orientation: head_orientation,
+                            position: head_position - head_to_eye_position,
+                            fov: tracking.l_eye_fov.into(),
                         },
-                        EyeFov {
-                            left: tracking.r_eye_fov.left,
-                            right: tracking.r_eye_fov.right,
-                            top: tracking.r_eye_fov.top,
-                            bottom: tracking.r_eye_fov.bottom,
+                        ViewConfig {
+                            orientation: head_orientation,
+                            position: head_position + head_to_eye_position,
+                            fov: tracking.r_eye_fov.into(),
                         }
                     ],
-                    battery: tracking.battery as u64,
-                    plugged: tracking.plugged as u64,
-                    head_pose_orientation: TrackingQuad {
-                        x: tracking.head_pose_orientation.x,
-                        y: tracking.head_pose_orientation.y,
-                        z: tracking.head_pose_orientation.z,
-                        w: tracking.head_pose_orientation.w,
+                    left_pose_input: HandPoseInput {
+                        grip_motion: MotionData {
+                            orientation: tracking.l_ctrl.orientation(),
+                            position: tracking.l_ctrl.position(),
+                            linear_velocity: tracking.l_ctrl.linear_velocity(),
+                            angular_velocity: tracking.l_ctrl.angular_velocity(),
+                        },
+                        hand_tracking_input: None,
                     },
-                    head_pose_position: TrackingVector3 {
-                        x: tracking.head_pose_position.x,
-                        y: tracking.head_pose_position.y,
-                        z: tracking.head_pose_position.z,
+                    right_pose_input: HandPoseInput {
+                        grip_motion: MotionData {
+                            orientation: tracking.r_ctrl.orientation(),
+                            position: tracking.r_ctrl.position(),
+                            linear_velocity: tracking.r_ctrl.linear_velocity(),
+                            angular_velocity: tracking.r_ctrl.angular_velocity(),
+                        },
+                        hand_tracking_input: None,
                     },
-                    controller: [
-                        map_controller(&tracking.l_ctrl, CONTROLLER_FLAG_LEFT_HAND),
-                        map_controller(&tracking.r_ctrl, 0),
-                    ],
-                    // TODO controller
-                    ..Default::default()
+                    trackers_pose_input: vec![],
+                    button_values: Default::default(), // unused for now
+                    legacy: LegacyInput {
+                        flags: 0,
+                        client_time: util::get_timestamp_us(),
+                        frame_index,
+                        battery: tracking.battery as u64,
+                        plugged: tracking.plugged,
+                        mounted: 1,
+                        controller_flags: [
+                            CONTROLLER_FLAG_ENABLE
+                                | CONTROLLER_FLAG_OCULUS_QUEST
+                                | CONTROLLER_FLAG_LEFT_HAND,
+                            CONTROLLER_FLAG_ENABLE
+                                | CONTROLLER_FLAG_OCULUS_QUEST,
+                        ],
+                        buttons: [
+                            tracking.l_ctrl.buttons,
+                            tracking.r_ctrl.buttons,
+                        ],
+                        trackpad_position: [
+                            Vec2::new(
+                                tracking.l_ctrl.trackpad_position_x,
+                                tracking.l_ctrl.trackpad_position_y,
+                            ),
+                            Vec2::new(
+                                tracking.r_ctrl.trackpad_position_x,
+                                tracking.r_ctrl.trackpad_position_y,
+                            ),
+                        ],
+                        trigger_value: [
+                            tracking.l_ctrl.trigger_value,
+                            tracking.r_ctrl.trigger_value,
+                        ],
+                        grip_value: [
+                            tracking.l_ctrl.grip_value,
+                            tracking.r_ctrl.grip_value,
+                        ],
+                        controller_battery: [100, 100],
+                        ..Default::default()
+                    },
                 }
             }
             Err(e) => {
                 warn!("Tracking data not found: {}", e);
-                TrackingInfo {
-                    client_time: util::get_timestamp_us(),
-                    frame_index,
-                    ..Default::default()
+                let head_to_eye_position = Vec3::X * packet::DEFAULT_IPD / 2f32;
+                Input {
+                    target_timestamp: Default::default(),
+                    view_configs: vec![
+                        ViewConfig {
+                            orientation: Quat::IDENTITY,
+                            position: -head_to_eye_position,
+                            fov: packet::default_left_eye_fov(),
+                        },
+                        ViewConfig {
+                            orientation: Quat::IDENTITY,
+                            position: head_to_eye_position,
+                            fov: packet::default_right_eye_fov(),
+                        }
+                    ],
+                    left_pose_input: HandPoseInput {
+                        grip_motion: MotionData {
+                            orientation: Quat::IDENTITY,
+                            position: Vec3::ZERO,
+                            linear_velocity: None,
+                            angular_velocity: None,
+                        },
+                        hand_tracking_input: None,
+                    },
+                    right_pose_input: HandPoseInput {
+                        grip_motion: MotionData {
+                            orientation: Quat::IDENTITY,
+                            position: Vec3::ZERO,
+                            linear_velocity: None,
+                            angular_velocity: None,
+                        },
+                        hand_tracking_input: None,
+                    },
+                    trackers_pose_input: vec![],
+                    button_values: Default::default(),
+                    legacy: LegacyInput {
+                        client_time: util::get_timestamp_us(),
+                        frame_index,
+                        ..Default::default()
+                    },
                 }
             }
         };
         latency_controller::tracking(frame_index);
-        trace_err!(legacy_send_data_sender.send(tracking_info.into()))?;
-
+        socket_sender.send_buffer(
+            socket_sender.new_buffer(&input, 0)?
+        ).await?;
         deadline += tracking_interval;
         time::sleep_until(deadline).await;
-    }
-}
-
-fn map_controller(ctrl: &device::Controller, flags: u32) -> Controller {
-    return Controller {
-        flags: flags
-            | CONTROLLER_FLAG_ENABLE
-            | CONTROLLER_FLAG_OCULUS_QUEST,
-        buttons: ctrl.buttons,
-        trackpad_position_x: ctrl.trackpad_position_x,
-        trackpad_position_y: ctrl.trackpad_position_y,
-        trigger_value: ctrl.trigger_value,
-        grip_value: ctrl.grip_value,
-        battery_percent_remaining: 100,
-        recenter_count: 0,
-        orientation: ctrl.orientation.into(),
-        position: ctrl.position.into(),
-        angular_velocity: Default::default(),
-        linear_velocity: Default::default(),
-        angular_acceleration: Default::default(),
-        linear_acceleration: Default::default(),
-        bone_rotations: Default::default(),
-        bone_positions_base: Default::default(),
-        bone_root_orientation: Default::default(),
-        bone_root_position: Default::default(),
-        input_state_status: 0,
-        finger_pinch_strengths: Default::default(),
-        hand_finger_confidence: 0
     }
 }
 
@@ -613,28 +779,65 @@ async fn keepalive_sender_loop(
     }
 }
 
-async fn control_loop(
-    mut control_receiver: ControlSocketReceiver<ServerControlPacket>,
-    control_sender: tmpsc::Sender<ClientControlPacket>,
+async fn request_idr_loop(
+    control_sender: tmpsc::Sender<ClientControlPacket>
 ) -> StrResult {
     loop {
-        tokio::select! {
-            _ = IDR_REQUEST_NOTIFIER.notified() => {
-                trace_err!(control_sender.send(ClientControlPacket::RequestIdr).await)?;
+        IDR_REQUEST_NOTIFIER.notified().await;
+        trace_err!(control_sender
+            .send(ClientControlPacket::RequestIdr)
+            .await
+        )?;
+    }
+}
+
+async fn control_receive_loop(
+    mut control_receiver: ControlSocketReceiver<ServerControlPacket>,
+    legacy_receive_data_sender: tmpsc::UnboundedSender<Vec<u8>>,
+) -> StrResult {
+    const TIME_SYNC_LEN: usize = mem::size_of::<TimeSync>();
+    loop {
+        let control_packet = trace_err!(control_receiver.recv().await)?;
+        match control_packet {
+            ServerControlPacket::Restarting => {
+                notify_event(ConnectionEvent::ServerRestart);
+                info!("control_receive_loop finished");
+                return Ok(())
             }
-            control_packet = control_receiver.recv() => match trace_err!(control_packet)? {
-                ServerControlPacket::Restarting => {
-                    notify_event(ConnectionEvent::ServerRestart);
-                    return Ok(())
-                }
-                _ => ()
+            ServerControlPacket::TimeSync(data) => {
+                let time_sync = TimeSync {
+                    packet_type: 7, // ALVR_PACKET_TYPE_TIME_SYNC
+                    mode: data.mode,
+                    server_time: data.server_time,
+                    client_time: data.client_time,
+                    sequence: 0,
+                    packets_lost_total: data.packets_lost_total,
+                    packets_lost_in_second: data.packets_lost_in_second,
+                    average_total_latency: 0,
+                    average_send_latency: data.average_send_latency,
+                    average_transport_latency: data.average_transport_latency,
+                    average_decode_latency: data.average_decode_latency,
+                    idle_time: data.idle_time,
+                    fec_failure: data.fec_failure,
+                    fec_failure_in_second: data.fec_failure_in_second,
+                    fec_failure_total: data.fec_failure_total,
+                    fps: data.fps,
+                    server_total_latency: data.server_total_latency,
+                    tracking_recv_frame_index: data.tracking_recv_frame_index,
+                };
+                let mut buffer = vec![0_u8; TIME_SYNC_LEN];
+                buffer.copy_from_slice(unsafe {
+                    &mem::transmute::<_, [u8; TIME_SYNC_LEN]>(time_sync)
+                });
+                trace_err!(legacy_receive_data_sender.send(buffer))?;
             }
+            _ => ()
         }
     }
 }
 
 fn game_audio_loop<'a>(
-    game_audio_receiver: StreamReceiver<(), AUDIO>,
+    game_audio_receiver: StreamReceiver<()>,
     game_audio_desc: Switch<GameAudioDesc>,
     game_audio_sample_rate: u32,
 ) -> BoxFuture<'a, StrResult> {
@@ -649,7 +852,7 @@ fn game_audio_loop<'a>(
 }
 
 fn microphone_loop<'a>(
-    microphone_sender: StreamSender<(), AUDIO>,
+    microphone_sender: StreamSender<()>,
     microphone_desc: Switch<MicrophoneDesc>,
 ) -> BoxFuture<'a, StrResult> {
     if let Switch::Enabled(desc) = microphone_desc {

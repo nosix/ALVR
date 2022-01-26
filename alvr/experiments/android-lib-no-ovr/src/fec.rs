@@ -1,10 +1,10 @@
-use crate::legacy_packets::{VideoFrameHeader, ALVR_MAX_PACKET_SIZE};
+use crate::legacy_packets::VideoFrameHeader;
 use alvr_common::prelude::*;
 use bytes::Bytes;
 use reed_solomon_erasure::galois_8::ReedSolomon;
-use std::{mem, ptr};
+use std::ptr;
 
-const ALVR_MAX_VIDEO_BUFFER_SIZE: usize = ALVR_MAX_PACKET_SIZE - mem::size_of::<VideoFrameHeader>();
+const ALVR_MAX_VIDEO_BUFFER_SIZE: usize = 1400;
 const ALVR_FEC_SHARDS_MAX: usize = 20;
 
 pub enum ReconstructError {
