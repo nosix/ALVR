@@ -34,8 +34,8 @@ class Decoder(
     private val mUpdatedSignal = Channel<Long>() // FIXME Do not create a Long instance
     private val mPauseSignal = Channel<Unit>(1)
     private val mSettingsChannel = Channel<ConnectionSettings>(1, BufferOverflow.DROP_OLDEST)
+    private val mCodecProxy = MediaCodecProxy()
     private var mDecodeJob: Job? = null
-    private var mIsActive: Boolean = false
 
     fun start(settings: ConnectionSettings, context: GlContext, screen: Screen) {
         mScope.launch {
@@ -102,8 +102,7 @@ class Decoder(
             setCallback(mMediaCodecCallback)
             configure(format, frameSurface.surface, null, 0)
         }
-        codec.start()
-        mIsActive = true
+        mCodecProxy.start(codec)
         Log.i(TAG, "The codec has started.")
 
         try {
@@ -120,9 +119,7 @@ class Decoder(
                 onRendered(frameIndex)
             }
         } finally {
-            mIsActive = false
-            codec.stop()
-            codec.release()
+            mCodecProxy.stop()
             surface.context.releaseSurface(frameSurface)
             Log.i(TAG, "The codec has stopped.")
         }
@@ -145,18 +142,14 @@ class Decoder(
         override fun onInputBufferAvailable(
             codec: MediaCodec, index: Int
         ) {
-            if (!mIsActive) return
-            val buffer: ByteBuffer = codec.getInputBuffer(index) ?: return
-            // TODO recycle InputBuffer object
-            val wrapper = InputBuffer(buffer, index, codec, mFrameMap)
+            val wrapper = mCodecProxy.getInputBuffer(codec, index, mFrameMap) ?: return
             this@Decoder.onInputBufferAvailable(wrapper)
         }
 
         override fun onOutputBufferAvailable(
             codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo
         ) {
-            if (!mIsActive) return
-            codec.releaseOutputBuffer(index, true)
+            if (!mCodecProxy.releaseOutputBuffer(codec, index)) return
             val frameIndex = mFrameMap.remove(info.presentationTimeUs)
             if (frameIndex != 0L) {
                 this@Decoder.onOutputBufferAvailable(frameIndex)
