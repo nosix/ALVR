@@ -16,8 +16,8 @@ class MediaCodecProxy {
         get() = mCodec != null
 
     fun start(codec: MediaCodec) {
-        codec.start()
         mCodec = codec
+        codec.start()
     }
 
     fun stop() {
