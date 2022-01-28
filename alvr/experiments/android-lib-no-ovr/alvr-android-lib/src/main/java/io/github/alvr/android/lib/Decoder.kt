@@ -31,8 +31,8 @@ class Decoder(
     }
 
     private val mScope = CoroutineScope(context)
-    private val mUpdatedSignal = Channel<Long>() // FIXME Do not create a Long instance
     private val mPauseSignal = Channel<Unit>(1)
+    private val mUpdatedSignal = Channel<Long>(1, BufferOverflow.DROP_OLDEST) // FIXME Do not create a Long instance
     private val mSettingsChannel = Channel<ConnectionSettings>(1, BufferOverflow.DROP_OLDEST)
     private val mCodecProxy = MediaCodecProxy()
     private var mDecodeJob: Job? = null
