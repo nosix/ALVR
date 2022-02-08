@@ -634,10 +634,10 @@ async fn tracking_loop(
                         plugged: tracking.plugged,
                         mounted: tracking.mounted,
                         controller_flags: [
-                            if tracking.l_ctrl.enabled { CONTROLLER_FLAG_ENABLE } else { 0 }
+                            if tracking.l_ctrl.enabled != 0 { CONTROLLER_FLAG_ENABLE } else { 0 }
                                 | CONTROLLER_FLAG_OCULUS_QUEST
                                 | CONTROLLER_FLAG_LEFT_HAND,
-                            if tracking.r_ctrl.enabled { CONTROLLER_FLAG_ENABLE } else { 0 }
+                            if tracking.r_ctrl.enabled != 0 { CONTROLLER_FLAG_ENABLE } else { 0 }
                                 | CONTROLLER_FLAG_OCULUS_QUEST,
                         ],
                         buttons: [

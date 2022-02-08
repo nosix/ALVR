@@ -38,7 +38,7 @@ pub struct Tracking {
 #[derive(Copy, Clone, Debug)]
 pub struct Controller
 {
-    pub enabled: bool,
+    pub enabled: u8,
     pub buttons: u64,
     pub trackpad_position_x: f32,
     pub trackpad_position_y: f32,

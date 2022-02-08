@@ -317,7 +317,7 @@ impl DeviceAdapter for JDeviceAdapter {
                 z: head_pose[6],
             },
             l_ctrl: Controller {
-                enabled: false,
+                enabled: 0,
                 buttons: 0,
                 trackpad_position_x: 0.0,
                 trackpad_position_y: 0.0,
@@ -336,7 +336,7 @@ impl DeviceAdapter for JDeviceAdapter {
                 }
             },
             r_ctrl: Controller {
-                enabled: false,
+                enabled: 0,
                 buttons: 0,
                 trackpad_position_x: 0.0,
                 trackpad_position_y: 0.0,
