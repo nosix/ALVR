@@ -22,6 +22,7 @@ class DeviceAdapterImpl(
         ipd = 0.068606f
         battery = 100
         plugged = true
+        mounted = true
         setEyeFov(52f)
     }
 

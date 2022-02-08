@@ -5,6 +5,7 @@ class Tracking {
     @JvmField var ipd: Float = 0f
     @JvmField var battery: Int = 0
     @JvmField var plugged: Boolean = false
+    @JvmField var mounted: Boolean = false
     @JvmField val eyeFov = FloatArray(8)
     @JvmField val headPose = FloatArray(7)
 

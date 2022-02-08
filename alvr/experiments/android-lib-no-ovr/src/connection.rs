@@ -632,12 +632,12 @@ async fn tracking_loop(
                         frame_index,
                         battery: tracking.battery as u64,
                         plugged: tracking.plugged,
-                        mounted: 1,
+                        mounted: tracking.mounted,
                         controller_flags: [
-                            CONTROLLER_FLAG_ENABLE
+                            if tracking.l_ctrl.enabled { CONTROLLER_FLAG_ENABLE } else { 0 }
                                 | CONTROLLER_FLAG_OCULUS_QUEST
                                 | CONTROLLER_FLAG_LEFT_HAND,
-                            CONTROLLER_FLAG_ENABLE
+                            if tracking.r_ctrl.enabled { CONTROLLER_FLAG_ENABLE } else { 0 }
                                 | CONTROLLER_FLAG_OCULUS_QUEST,
                         ],
                         buttons: [
@@ -802,7 +802,7 @@ async fn control_receive_loop(
             ServerControlPacket::Restarting => {
                 notify_event(ConnectionEvent::ServerRestart);
                 info!("control_receive_loop finished");
-                return Ok(())
+                return Ok(());
             }
             ServerControlPacket::TimeSync(data) => {
                 let time_sync = TimeSync {

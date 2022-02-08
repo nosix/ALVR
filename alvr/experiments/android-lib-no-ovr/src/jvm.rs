@@ -292,6 +292,7 @@ impl DeviceAdapter for JDeviceAdapter {
             ipd: tracking.get_ipd(),
             battery: tracking.get_battery(),
             plugged: tracking.get_plugged(),
+            mounted: tracking.get_mounted(),
             l_eye_fov: Rect {
                 left: eye_fov[0],
                 right: eye_fov[1],
@@ -316,6 +317,7 @@ impl DeviceAdapter for JDeviceAdapter {
                 z: head_pose[6],
             },
             l_ctrl: Controller {
+                enabled: false,
                 buttons: 0,
                 trackpad_position_x: 0.0,
                 trackpad_position_y: 0.0,
@@ -334,6 +336,7 @@ impl DeviceAdapter for JDeviceAdapter {
                 }
             },
             r_ctrl: Controller {
+                enabled: false,
                 buttons: 0,
                 trackpad_position_x: 0.0,
                 trackpad_position_y: 0.0,
@@ -391,6 +394,10 @@ impl<'a> JTracking<'a> {
 
     pub fn get_plugged(&self) -> u8 {
         get_boolean_field(&self.env, self.object, "plugged")
+    }
+
+    pub fn get_mounted(&self) -> u8 {
+        get_boolean_field(&self.env, self.object, "mounted")
     }
 
     /// (l.left, l.right, l.top, l.bottom, r.left, r.right, r.top, r.bottom)

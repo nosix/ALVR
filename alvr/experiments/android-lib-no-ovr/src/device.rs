@@ -25,6 +25,7 @@ pub struct Tracking {
     pub ipd: f32,
     pub battery: Percentage,
     pub plugged: u8,
+    pub mounted: u8,
     pub l_eye_fov: Rect,
     pub r_eye_fov: Rect,
     pub head_pose_orientation: Quaternion,
@@ -37,6 +38,7 @@ pub struct Tracking {
 #[derive(Copy, Clone, Debug)]
 pub struct Controller
 {
+    pub enabled: bool,
     pub buttons: u64,
     pub trackpad_position_x: f32,
     pub trackpad_position_y: f32,
