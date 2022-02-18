@@ -1,6 +1,8 @@
 package io.github.alvr.android.app
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.util.Log
@@ -8,6 +10,8 @@ import android.view.KeyEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import io.github.alvr.android.lib.AlvrClient
 import io.github.alvr.android.lib.ClientEventObserver
 import io.github.alvr.android.lib.DeviceSettings
@@ -44,11 +48,35 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        val hasFeatureMicrophone =
+            applicationContext.packageManager.hasSystemFeature(PackageManager.FEATURE_MICROPHONE)
+        Log.i(TAG, "FeatureMicrophone: $hasFeatureMicrophone")
+
         mAlvrClient.attachPreference(getPreferences(Context.MODE_PRIVATE))
         mAlvrClient.attachDeviceAdapter(mDeviceAdapter)
         mAlvrClient.setEventObserver(mEventObserver)
         lifecycle.addObserver(mAlvrClient)
         lifecycle.addObserver(mDeviceAdapter)
+
+        val enableRecordAudio = createGuardedAction(Manifest.permission.RECORD_AUDIO,
+            showRational = { launch ->
+                Toast.makeText(
+                    this,
+                    "Send microphone audio to SteamVR",
+                    Toast.LENGTH_LONG
+                ).show()
+                launch()
+            },
+            guardedAction = {
+                Log.d(TAG, "Enable ${Manifest.permission.RECORD_AUDIO}")
+                Toast.makeText(
+                    this,
+                    "Enable ${Manifest.permission.RECORD_AUDIO}",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        )
+        enableRecordAudio()
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -96,5 +124,34 @@ class MainActivity : AppCompatActivity() {
                 mAlvrClient.detachScreen()
             }
         })
+    }
+
+    private fun createGuardedAction(
+        permission: String,
+        showRational: (launch: () -> Unit) -> Unit,
+        guardedAction: () -> Unit
+    ): () -> Unit {
+        val requestPermissionLauncher =
+            registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
+                if (isGranted) {
+                    guardedAction()
+                } else {
+                    Toast.makeText(this, "Deny $permission", Toast.LENGTH_SHORT).show()
+                }
+            }
+        return {
+            when {
+                PackageManager.PERMISSION_GRANTED == ContextCompat.checkSelfPermission(
+                    this,
+                    permission
+                ) -> guardedAction()
+                shouldShowRequestPermissionRationale(permission) -> showRational {
+                    requestPermissionLauncher.launch(permission)
+                }
+                else -> {
+                    requestPermissionLauncher.launch(permission)
+                }
+            }
+        }
     }
 }
