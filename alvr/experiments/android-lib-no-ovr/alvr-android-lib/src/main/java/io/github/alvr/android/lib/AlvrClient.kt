@@ -52,6 +52,8 @@ class AlvrClient(
     private val mSettingsChannel = Channel<ConnectionSettings>(1, BufferOverflow.DROP_OLDEST)
     private val mScreenChannel = Channel<Screen>(1, BufferOverflow.DROP_OLDEST)
 
+    fun getHostName(): String = mSharedPreferences?.get()?.hostname ?: ""
+
     fun attachPreference(shardPref: SharedPreferences) {
         mSharedPreferences = shardPref
     }

@@ -145,6 +145,8 @@ class UnityPlugin(activity: Activity) : LifecycleOwner {
         mGlContext.value?.close()
     }
 
+    fun getHostName(): String = mAlvrClient.getHostName()
+
     fun attachTexture(textureId: Int, width: Int, height: Int) {
         mScope.launchWithGlContext {
             val texture = Texture(textureId, width, height)
